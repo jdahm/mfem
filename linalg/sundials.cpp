@@ -132,6 +132,114 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
    return 0;
 }
 
+// ---------- [ SundialsVector Methods ] ----------
+
+// ---------- [ Serial ] ----------
+class SundialsSerialVector : public SundialsVector
+{
+protected:
+   N_VectorContent_Serial content;
+   bool own_data;
+
+   virtual N_Vector New(long int length) const
+   {
+      if(length > 0)
+         return N_VNew_Serial(length);
+      else
+         return N_VNewEmpty_Serial(length);
+   }
+
+public:
+   SundialsSerialVector(long int length) :
+      own_data(length > 0)
+   {
+      New(length);
+      content = static_cast<N_VectorContent_Serial>(vector->content);
+   }
+
+   virtual void SetData(realtype *data)
+   {
+      DestroyData();
+      content->data = data;
+      own_data = false;
+   }
+
+   virtual realtype *Data() { return content->data; }
+   virtual const realtype *Data() const { return content->data; }
+
+   virtual void DestroyData() { if (own_data) delete content->data; }
+
+   virtual long int Size() const { return N_VGetLength_Serial(vector); }
+
+   virtual bool Parallel() const { return false; }
+};
+
+// ---------- [ Parallel ] ----------
+#ifdef MFEM_USE_MPI
+class SundialsParallelVector : public SundialsVector
+{
+protected:
+   N_VectorContent_Parallel content;
+   bool own_data;
+   MPI_Comm comm;
+
+   virtual N_Vector New(long int local_length) const
+   {
+      long int global_length;
+      MPI_Allreduce(&local_length, &global_length, 1, MPI_LONG, MPI_SUM, comm);
+      if (local_length > 0)
+         return N_VNew_Parallel(comm, local_length, global_length);
+      else
+         return N_VNewEmpty_Parallel(comm, local_length, global_length);
+   }
+
+public:
+   SundialsParallelVector(MPI_Comm comm_, long int local_length) :
+      own_data(local_length > 0),
+      comm(comm_)
+   {
+      New(local_length);
+      content = static_cast<N_VectorContent_Parallel>(vector->content);
+   }
+
+   virtual void SetData(realtype *data)
+   {
+      DestroyData();
+      content->data = data;
+      own_data = false;
+   }
+
+   virtual realtype *Data() { return content->data; }
+   virtual const realtype *Data() const { return content->data; }
+
+   virtual void DestroyData() { if (own_data) delete content->data; }
+
+   virtual long int Size() const { return N_VGetLocalLength_Parallel(vector); }
+
+   virtual bool Parallel() const { return comm != MPI_COMM_NULL; }
+
+   long int GlobalSize() const { return N_VGetLength_Parallel(vector); }
+
+   const MPI_Comm& Comm() const { return comm; }
+};
+#endif
+
+#ifdef MFEM_USE_MPI
+static SundialsVector *NewSundialsVector(MPI_Comm comm, long int length)
+{
+   if (comm != MPI_COMM_NULL)
+      return new SundialsParallelVector(comm, length);
+   else
+      return new SundialsSerialVector(length);
+}
+#endif
+
+static SundialsVector *NewSundialsVector(long int length)
+{
+   return new SundialsSerialVector(length);
+}
+//======================================
+
 static inline CVodeMem Mem(const CVODESolver *self)
 {
    return CVodeMem(self->SundialsMem());
@@ -139,9 +247,9 @@ static inline CVodeMem Mem(const CVODESolver *self)
 
 CVODESolver::CVODESolver(int lmm, int iter)
 {
-   // Allocate an empty serial N_Vector wrapper in y.
-   y = N_VNewEmpty_Serial(0);
-   MFEM_ASSERT(y, "error in N_VNewEmpty_Serial()");
+   // Create an empty SundialsVector.
+   y = NewSundialsVector(0);
+   MFEM_ASSERT(y, "error in NewSundialsVector()");
 
    // Create the solver memory.
    sundials_mem = CVodeCreate(lmm, iter);
@@ -159,18 +267,9 @@ CVODESolver::CVODESolver(int lmm, int iter)
 
 CVODESolver::CVODESolver(MPI_Comm comm, int lmm, int iter)
 {
-   if (comm == MPI_COMM_NULL)
-   {
-      // Allocate an empty serial N_Vector wrapper in y.
-      y = N_VNewEmpty_Serial(0);
-      MFEM_ASSERT(y, "error in N_VNewEmpty_Serial()");
-   }
-   else
-   {
-      // Allocate an empty parallel N_Vector wrapper in y.
-      y = N_VNewEmpty_Parallel(comm, 0, 0); // calls MPI_Allreduce()
-      MFEM_ASSERT(y, "error in N_VNewEmpty_Parallel()");
-   }
+   // Create an empty SundialsVector.
+   y = NewSundialsVector(comm, 0);
+   MFEM_ASSERT(y, "error in NewSundialsVector()");
 
    // Create the solver memory.
    sundials_mem = CVodeCreate(lmm, iter);
@@ -267,44 +366,17 @@ void CVODESolver::Init(TimeDependentOperator &f_)
 
    ODESolver::Init(f_);
 
-   // Set actual size and data in the N_Vector y.
-   int loc_size = f_.Height();
-   if (!Parallel())
-   {
-      NV_LENGTH_S(y) = loc_size;
-      NV_DATA_S(y) = new double[loc_size](); // value-initialize
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      long local_size = loc_size, global_size;
-      MPI_Allreduce(&local_size, &global_size, 1, MPI_LONG, MPI_SUM,
-                    NV_COMM_P(y));
-      NV_LOCLENGTH_P(y) = local_size;
-      NV_GLOBLENGTH_P(y) = global_size;
-      NV_DATA_P(y) = new double[loc_size](); // value-initialize
-#endif
-   }
+   // Resize the SundialsVector.
+   y->Resize(f_.Height());
 
    // Call CVodeInit().
    cvCopyInit(mem, &backup);
-   flag = CVodeInit(mem, ODEMult, f_.GetTime(), y);
+   flag = CVodeInit(mem, ODEMult, f_.GetTime(), y->ToNVector());
    MFEM_ASSERT(flag >= 0, "CVodeInit() failed!");
    cvCopyInit(&backup, mem);
 
-   // Delete the allocated data in y.
-   if (!Parallel())
-   {
-      delete [] NV_DATA_S(y);
-      NV_DATA_S(y) = NULL;
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      delete [] NV_DATA_P(y);
-      NV_DATA_P(y) = NULL;
-#endif
-   }
+   // Deallocate the data in y.
+   y->DestroyData();
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = CVodeSetUserData(sundials_mem, f);
@@ -318,18 +390,8 @@ void CVODESolver::Step(Vector &x, double &t, double &dt)
 {
    CVodeMem mem = Mem(this);
 
-   if (!Parallel())
-   {
-      NV_DATA_S(y) = x.GetData();
-      MFEM_VERIFY(NV_LENGTH_S(y) == x.Size(), "");
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      NV_DATA_P(y) = x.GetData();
-      MFEM_VERIFY(NV_LOCLENGTH_P(y) == x.Size(), "");
-#endif
-   }
+   // Set the data pointer in y.
+   y->SetData(x.GetData());
 
    if (mem->cv_nst == 0)
    {
@@ -340,12 +402,12 @@ void CVODESolver::Step(Vector &x, double &t, double &dt)
       }
       // Set the actual t0 and y0.
       mem->cv_tn = t;
-      N_VScale(ONE, y, mem->cv_zn[0]);
+      N_VScale(ONE, y->ToNVector(), mem->cv_zn[0]);
    }
 
    double tout = t + dt;
    // The actual time integration.
-   flag = CVode(sundials_mem, tout, y, &t, mem->cv_taskc);
+   flag = CVode(sundials_mem, tout, y->ToNVector(), &t, mem->cv_taskc);
    MFEM_ASSERT(flag >= 0, "CVode() failed!");
 
    // Return the last incremental step size.
@@ -371,7 +433,7 @@ void CVODESolver::PrintInfo() const
 
 CVODESolver::~CVODESolver()
 {
-   N_VDestroy(y);
+   delete y;
    CVodeFree(&sundials_mem);
 }
 
@@ -383,9 +445,9 @@ static inline ARKodeMem Mem(const ARKODESolver *self)
 ARKODESolver::ARKODESolver(Type type)
    : use_implicit(type == IMPLICIT), irk_table(-1), erk_table(-1)
 {
-   // Allocate an empty serial N_Vector wrapper in y.
-   y = N_VNewEmpty_Serial(0);
-   MFEM_ASSERT(y, "error in N_VNewEmpty_Serial()");
+   // Create an empty SundialsVector.
+   y = NewSundialsVector(0);
+   MFEM_ASSERT(y, "error in NewSundialsVector()");
 
    // Create the solver memory.
    sundials_mem = ARKodeCreate();
@@ -403,18 +465,9 @@ ARKODESolver::ARKODESolver(Type type)
 ARKODESolver::ARKODESolver(MPI_Comm comm, Type type)
    : use_implicit(type == IMPLICIT), irk_table(-1), erk_table(-1)
 {
-   if (comm == MPI_COMM_NULL)
-   {
-      // Allocate an empty serial N_Vector wrapper in y.
-      y = N_VNewEmpty_Serial(0);
-      MFEM_ASSERT(y, "error in N_VNew_Serial()");
-   }
-   else
-   {
-      // Allocate an empty parallel N_Vector wrapper in y.
-      y = N_VNewEmpty_Parallel(comm, 0, 0); // calls MPI_Allreduce()
-      MFEM_ASSERT(y, "error in N_VNewEmpty_Parallel()");
-   }
+   // Create an empty SundialsVector.
+   y = NewSundialsVector(comm, 0);
+   MFEM_ASSERT(y, "error in NewSundialsVector()");
 
    // Create the solver memory.
    sundials_mem = ARKodeCreate();
@@ -528,48 +581,21 @@ void ARKODESolver::Init(TimeDependentOperator &f_)
 
    ODESolver::Init(f_);
 
-   // Set actual size and data in the N_Vector y.
-   int loc_size = f_.Height();
-   if (!Parallel())
-   {
-      NV_LENGTH_S(y) = loc_size;
-      NV_DATA_S(y) = new double[loc_size](); // value-initialize
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      long local_size = loc_size, global_size;
-      MPI_Allreduce(&local_size, &global_size, 1, MPI_LONG, MPI_SUM,
-                    NV_COMM_P(y));
-      NV_LOCLENGTH_P(y) = local_size;
-      NV_GLOBLENGTH_P(y) = global_size;
-      NV_DATA_P(y) = new double[loc_size](); // value-initialize
-#endif
-   }
+   // Allocate the SundialsVector y.
+   y->Resize(f_.Height());
 
    // Call ARKodeInit().
    arkCopyInit(mem, &backup);
    double t = f_.GetTime();
    // TODO: IMEX interface and example.
    flag = (use_implicit) ?
-          ARKodeInit(sundials_mem, NULL, ODEMult, t, y) :
-          ARKodeInit(sundials_mem, ODEMult, NULL, t, y);
+           ARKodeInit(sundials_mem, NULL, ODEMult, t, y->ToNVector()) :
+           ARKodeInit(sundials_mem, ODEMult, NULL, t, y->ToNVector());
    MFEM_ASSERT(flag >= 0, "CVodeInit() failed!");
    arkCopyInit(&backup, mem);
 
-   // Delete the allocated data in y.
-   if (!Parallel())
-   {
-      delete [] NV_DATA_S(y);
-      NV_DATA_S(y) = NULL;
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      delete [] NV_DATA_P(y);
-      NV_DATA_P(y) = NULL;
-#endif
-   }
+   // Deallocate the data in y.
+   y->DestroyData();
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = ARKodeSetUserData(sundials_mem, f);
@@ -597,18 +623,8 @@ void ARKODESolver::Step(Vector &x, double &t, double &dt)
 {
    ARKodeMem mem = Mem(this);
 
-   if (!Parallel())
-   {
-      NV_DATA_S(y) = x.GetData();
-      MFEM_VERIFY(NV_LENGTH_S(y) == x.Size(), "");
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      NV_DATA_P(y) = x.GetData();
-      MFEM_VERIFY(NV_LOCLENGTH_P(y) == x.Size(), "");
-#endif
-   }
+   // Set the data pointer in y.
+   y->SetData(x.GetData());
 
    if (mem->ark_nst == 0)
    {
@@ -621,12 +637,12 @@ void ARKODESolver::Step(Vector &x, double &t, double &dt)
       mem->ark_tn = t;
       mem->ark_tnew = t;
 
-      N_VScale(ONE, y, mem->ark_ycur);
+      N_VScale(ONE, y->ToNVector(), mem->ark_ycur);
    }
 
    double tout = t + dt;
    // The actual time integration.
-   flag = ARKode(sundials_mem, tout, y, &t, mem->ark_taskc);
+   flag = ARKode(sundials_mem, tout, y->ToNVector(), &t, mem->ark_taskc);
    MFEM_ASSERT(flag >= 0, "ARKode() failed!");
 
    // Return the last incremental step size.
@@ -651,7 +667,7 @@ void ARKODESolver::PrintInfo() const
 
 ARKODESolver::~ARKODESolver()
 {
-   N_VDestroy(y);
+   delete y;
    ARKodeFree(&sundials_mem);
 }
 
@@ -733,14 +749,14 @@ int KinSolver::LinSysSolve(KINMemRec *kin_mem, N_Vector x, N_Vector b,
 KinSolver::KinSolver(int strategy, bool oper_grad)
    : use_oper_grad(oper_grad), jacobian(NULL)
 {
-   // Allocate empty serial N_Vectors.
-   y = N_VNewEmpty_Serial(0);
-   y_scale = N_VNewEmpty_Serial(0);
-   f_scale = N_VNewEmpty_Serial(0);
-   MFEM_ASSERT(y && y_scale && f_scale, "Error in N_VNewEmpty_Serial().");
+   // Create an empty SundialsVector.
+   y = NewSundialsVector(0);
+   y_scale = NewSundialsVector(0);
+   f_scale = NewSundialsVector(0);
+   MFEM_ASSERT(y, "error in NewSundialsVector()");
 
    sundials_mem = KINCreate();
-   MFEM_ASSERT(sundials_mem, "Error in KINCreate().");
+   MFEM_ASSERT(sundials_mem, "Error in KINCreate()");
 
    Mem(this)->kin_globalstrategy = strategy;
    // Default abs_tol, print_level.
@@ -755,22 +771,11 @@ KinSolver::KinSolver(int strategy, bool oper_grad)
 KinSolver::KinSolver(MPI_Comm comm, int strategy, bool oper_grad)
    : use_oper_grad(oper_grad), jacobian(NULL)
 {
-   if (comm == MPI_COMM_NULL)
-   {
-      // Allocate empty serial N_Vectors.
-      y = N_VNewEmpty_Serial(0);
-      y_scale = N_VNewEmpty_Serial(0);
-      f_scale = N_VNewEmpty_Serial(0);
-      MFEM_ASSERT(y && y_scale && f_scale, "Error in N_VNewEmpty_Serial().");
-   }
-   else
-   {
-      // Allocate empty parallel N_Vectors.
-      y = N_VNewEmpty_Parallel(comm, 0, 0);
-      y_scale = N_VNewEmpty_Parallel(comm, 0, 0);
-      f_scale = N_VNewEmpty_Parallel(comm, 0, 0);
-      MFEM_ASSERT(y && y_scale && f_scale, "Error in N_VNewEmpty_Parallel().");
-   }
+   // Create an empty SundialsVector.
+   y = NewSundialsVector(0);
+   y_scale = NewSundialsVector(0);
+   f_scale = NewSundialsVector(0);
+   MFEM_ASSERT(y, "error in NewSundialsVector()");
 
    sundials_mem = KINCreate();
    MFEM_ASSERT(sundials_mem, "Error in KINCreate().");
@@ -822,36 +827,13 @@ void KinSolver::SetOperator(const Operator &op)
    NewtonSolver::SetOperator(op);
    jacobian = NULL;
 
-   // Set actual size and data in the N_Vector y.
-   if (!Parallel())
-   {
-      NV_LENGTH_S(y) = height;
-      NV_DATA_S(y)   = new double[height](); // value-initialize
-      NV_LENGTH_S(y_scale) = height;
-      NV_DATA_S(y_scale)   = NULL;
-      NV_LENGTH_S(f_scale) = height;
-      NV_DATA_S(f_scale)   = NULL;
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      long local_size = height, global_size;
-      MPI_Allreduce(&local_size, &global_size, 1, MPI_LONG, MPI_SUM,
-                    NV_COMM_P(y));
-      NV_LOCLENGTH_P(y)  = local_size;
-      NV_GLOBLENGTH_P(y) = global_size;
-      NV_DATA_P(y)       = new double[local_size](); // value-initialize
-      NV_LOCLENGTH_P(y_scale)  = local_size;
-      NV_GLOBLENGTH_P(y_scale) = global_size;
-      NV_DATA_P(y_scale)       = NULL;
-      NV_LOCLENGTH_P(f_scale)  = local_size;
-      NV_GLOBLENGTH_P(f_scale) = global_size;
-      NV_DATA_P(f_scale)       = NULL;
-#endif
-   }
+   // Allocate the SundialsVector y.
+   y->Resize(height);
+   y_scale->Resize(height);
+   f_scale->Resize(height);
 
    kinCopyInit(mem, &backup);
-   flag = KINInit(sundials_mem, KinSolver::Mult, y);
+   flag = KINInit(sundials_mem, KinSolver::Mult, y->ToNVector());
    // Initialization of kin_pp; otherwise, for a custom Jacobian inversion,
    // the first time we enter the linear solve, we will get uninitialized
    // initial guess (matters when iterative_mode = true).
@@ -859,19 +841,9 @@ void KinSolver::SetOperator(const Operator &op)
    MFEM_ASSERT(flag >= 0, "KINInit() failed!");
    kinCopyInit(&backup, mem);
 
-   // Delete the allocated data in y.
-   if (!Parallel())
-   {
-      delete [] NV_DATA_S(y);
-      NV_DATA_S(y) = NULL;
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      delete [] NV_DATA_P(y);
-      NV_DATA_P(y) = NULL;
-#endif
-   }
+   y->DestroyData();
+   y_scale->DestroyData();
+   f_scale->DestroyData();
 
    // The 'user_data' in KINSOL will be the pointer 'this'.
    flag = KINSetUserData(sundials_mem, this);
@@ -931,10 +903,11 @@ void KinSolver::Mult(const Vector &b, Vector &x) const
       // Note that KINSOL uses infinity norms.
       double norm;
 #ifdef MFEM_USE_MPI
-      if (Parallel())
+      if (y->Parallel())
       {
          double lnorm = r.Normlinf();
-         MPI_Allreduce(&lnorm, &norm, 1, MPI_DOUBLE, MPI_MAX, NV_COMM_P(y));
+         const SundialsParallelVector *yp = static_cast<const SundialsParallelVector*>(y);
+         MPI_Allreduce(&lnorm, &norm, 1, MPI_DOUBLE, MPI_MAX, yp->Comm());
       }
       else
 #endif
@@ -979,26 +952,15 @@ void KinSolver::Mult(Vector &x,
    flag = KINSetFuncNormTol(sundials_mem, mem->kin_fnormtol);
    MFEM_ASSERT(flag >= 0, "KINSetFuncNormTol() failed!");
 
-   if (!Parallel())
-   {
-      NV_DATA_S(y) = x.GetData();
-      MFEM_VERIFY(NV_LENGTH_S(y) == x.Size(), "");
-      NV_DATA_S(y_scale) = x_scale.GetData();
-      NV_DATA_S(f_scale) = fx_scale.GetData();
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      NV_DATA_P(y) = x.GetData();
-      MFEM_VERIFY(NV_LOCLENGTH_P(y) == x.Size(), "");
-      NV_DATA_P(y_scale) = x_scale.GetData();
-      NV_DATA_P(f_scale) = fx_scale.GetData();
-#endif
-   }
+   y->SetData(x.GetData());
+   y_scale->SetData(x_scale.GetData());
+   f_scale->SetData(fx_scale.GetData());
 
    if (!iterative_mode) { x = 0.0; }
 
-   flag = KINSol(sundials_mem, y, mem->kin_globalstrategy, y_scale, f_scale);
+   flag = KINSol(sundials_mem, y->ToNVector(),
+                 mem->kin_globalstrategy,
+                 y_scale->ToNVector(), f_scale->ToNVector());
 
    converged  = (flag >= 0);
    final_iter = mem->kin_nni;
@@ -1007,9 +969,9 @@ void KinSolver::Mult(Vector &x,
 
 KinSolver::~KinSolver()
 {
-   N_VDestroy(y);
-   N_VDestroy(y_scale);
-   N_VDestroy(f_scale);
+   delete y;
+   delete y_scale;
+   delete f_scale;
    KINFree(&sundials_mem);
 }
 

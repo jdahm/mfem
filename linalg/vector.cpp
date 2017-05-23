@@ -12,6 +12,7 @@
 // Implementation of data type vector
 
 #include "vector.hpp"
+#include "sundials.hpp"
 
 #if defined(MFEM_USE_SUNDIALS) && defined(MFEM_USE_MPI)
 #include <nvector/nvector_parallel.h>
@@ -772,6 +773,11 @@ double Vector::DistanceTo(const double *p) const
 }
 
 #ifdef MFEM_USE_SUNDIALS
+
+Vector::Vector(SundialsVector &nv)
+{
+  SetDataAndSize(nv.Data(), nv.Size());
+}
 
 Vector::Vector(N_Vector nv)
 {
