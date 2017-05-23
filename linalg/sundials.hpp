@@ -23,6 +23,7 @@
 #include "ode.hpp"
 #include "solvers.hpp"
 
+#include <sundials/sundials_nvector.h>
 #include <cvode/cvode.h>
 #include <arkode/arkode.h>
 #include <kinsol/kinsol.h>
@@ -80,6 +81,48 @@ public:
    ///@}
 };
 
+/** @brief An abstract class for the various implementations of N_Vector
+    provided by SUNDIALS. */
+class SundialsVector
+{
+protected:
+   N_Vector vector;
+
+   /// Factory method to produce N_Vectors of the current type.
+   virtual N_Vector New(long int length) const = 0;
+
+public:
+   virtual ~SundialsVector() { N_VDestroy(vector); }
+
+   /// Set the underlying data to the pointer.
+   // Caller must ensure this is a valid device pointer if necessary.
+   virtual void SetData(realtype *data) = 0;
+
+   /// Return a pointer to the underlying data.
+   // Caller must ensure this is handled correctly. This may be a device pointer.
+   virtual realtype *Data() = 0;
+   virtual const realtype *Data() const = 0;
+
+   /// Destroy the underlying data.
+   virtual void DestroyData() = 0;
+
+   /// Returns the size of data.
+   virtual long int Size() const = 0;
+
+   /// Returns true if this vector requires MPI communication.
+   virtual bool Parallel() const = 0;
+
+   /// Accesses the underlying N_Vector for calls to SUNDIALS functions.
+   inline N_Vector ToNVector() { return vector; }
+
+   /// Resize the underlying data. Currently allocates a new vector.
+   void Resize(long int length)
+   {
+      DestroyData();
+      N_VDestroy(vector);
+      vector = New(length);
+   }
+};
 
 /// A base class for the MFEM classes wrapping SUNDIALS' solvers.
 /** This class defines some common data and functions used by the SUNDIALS
@@ -90,13 +133,7 @@ protected:
    void *sundials_mem; ///< Pointer to the SUNDIALS mem object.
    mutable int flag;   ///< Flag returned by the last call to SUNDIALS.
 
-   N_Vector y;  ///< Auxiliary N_Vector.
-#ifdef MFEM_USE_MPI
-   bool Parallel() const
-   { return (y->ops->nvgetvectorid != N_VGetVectorID_Serial); }
-#else
-   bool Parallel() const { return false; }
-#endif
+   SundialsVector *y;  ///< Auxiliary SundialsVector (N_Vector).
 
    static const double default_rel_tol;
    static const double default_abs_tol;
@@ -143,7 +180,6 @@ public:
        For parameter desciption, see the CVodeCreate documentation (cvode.h). */
    CVODESolver(int lmm, int iter);
 
-#ifdef MFEM_USE_MPI
    /// Construct a parallel CVODESolver, a wrapper for SUNDIALS' CVODE solver.
    /** @param[in] comm  The MPI communicator used to partition the ODE system.
        @param[in] lmm   Specifies the linear multistep method, the options are
@@ -154,7 +190,8 @@ public:
                         CV_NEWTON (usually with CV_BDF).
        For parameter desciption, see the CVodeCreate documentation (cvode.h). */
    CVODESolver(MPI_Comm comm, int lmm, int iter);
-#endif
+
+   /// Returns true of the Solver needs to do MPI communication.
 
    /// Set the scalar relative and scalar absolute tolerances.
    void SetSStolerances(double reltol, double abstol);
@@ -313,7 +350,7 @@ class KinSolver : public NewtonSolver, public SundialsSolver
 {
 protected:
    bool use_oper_grad;
-   mutable N_Vector y_scale, f_scale;
+   mutable SundialsVector *y_scale, *f_scale;
    const Operator *jacobian; // stores the result of oper->GetGradient()
 
    /// @name Auxiliary callback functions.

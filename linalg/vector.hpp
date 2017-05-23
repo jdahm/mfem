@@ -15,6 +15,7 @@
 // Data type vector
 
 #include "../general/array.hpp"
+
 #ifdef MFEM_USE_SUNDIALS
 #include <nvector/nvector_serial.h>
 #endif
@@ -31,6 +32,10 @@
 
 namespace mfem
 {
+
+#ifdef MFEM_USE_SUNDIALS
+class SundialsVector;
+#endif
 
 /** Count the number of entries in an array of doubles for which isfinite
     is false, i.e. the entry is a NaN or +/-Inf. */
@@ -263,6 +268,9 @@ public:
 #ifdef MFEM_USE_SUNDIALS
    /// Construct a wrapper Vector from SUNDIALS N_Vector.
    explicit Vector(N_Vector nv);
+
+   /// Construct a wrapper Vector from a SundialsVector.
+   explicit Vector(SundialsVector &nv);
 
    /// Return a new wrapper SUNDIALS N_Vector of type SUNDIALS_NVEC_SERIAL.
    /** The returned N_Vector must be destroyed by the caller. */
