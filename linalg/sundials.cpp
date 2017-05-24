@@ -139,37 +139,62 @@ class SundialsSerialVector : public SundialsVector
 {
 protected:
    N_VectorContent_Serial content;
-   bool own_data;
 
-   virtual N_Vector New(long int length) const
+   virtual N_Vector NewNVector(long int length) const
    {
       if(length > 0)
          return N_VNew_Serial(length);
       else
-         return N_VNewEmpty_Serial(length);
+         return N_VNewEmpty_Serial(0);
    }
 
 public:
-   SundialsSerialVector(long int length) :
-      own_data(length > 0)
+   SundialsSerialVector(long int length)
    {
-      New(length);
+      vector = NewNVector(length);
       content = static_cast<N_VectorContent_Serial>(vector->content);
+   }
+
+   virtual SundialsVector *New(long int length) const
+   {
+      return new SundialsSerialVector(length);
    }
 
    virtual void SetData(realtype *data)
    {
-      DestroyData();
+      Destroy();
       content->data = data;
-      own_data = false;
+      content->own_data = false;
    }
 
-   virtual realtype *Data() { return content->data; }
-   virtual const realtype *Data() const { return content->data; }
+   virtual void Destroy()
+   {
+      if (content->own_data)
+      {
+         free(content->data);
+         content->data = NULL;
+      }
+   }
 
-   virtual void DestroyData() { if (own_data) delete content->data; }
+   virtual void Swap(SundialsVector *nv)
+   {
+      N_VDestroy(vector);
+      vector  = static_cast<SundialsSerialVector *>(nv)->vector;
+      content = static_cast<N_VectorContent_Serial>(vector->content);
+   }
 
-   virtual long int Size() const { return N_VGetLength_Serial(vector); }
+   virtual void SetSize(long int length)
+   {
+      if (!content->own_data)
+      {
+         content->length = length;
+      }
+      else if (content->length != length)
+      {
+         N_VDestroy(vector);
+         Swap(New(length));
+      }
+   }
 
    virtual bool Parallel() const { return false; }
 };
@@ -180,45 +205,74 @@ class SundialsParallelVector : public SundialsVector
 {
 protected:
    N_VectorContent_Parallel content;
-   bool own_data;
    MPI_Comm comm;
 
-   virtual N_Vector New(long int local_length) const
+   virtual N_Vector NewNVector(long int local_length) const
    {
-      long int global_length;
-      MPI_Allreduce(&local_length, &global_length, 1, MPI_LONG, MPI_SUM, comm);
+      long int global_length = local_length;
       if (local_length > 0)
+      {
+         MPI_Allreduce(&local_length, &global_length, 1, MPI_LONG, MPI_SUM, comm);
          return N_VNew_Parallel(comm, local_length, global_length);
+      }
       else
-         return N_VNewEmpty_Parallel(comm, local_length, global_length);
+      {
+         return N_VNewEmpty_Parallel(comm, 0, 0);
+      }
    }
 
 public:
-   SundialsParallelVector(MPI_Comm comm_, long int local_length) :
-      own_data(local_length > 0),
-      comm(comm_)
+   SundialsParallelVector(MPI_Comm comm_, long int local_length) : comm(comm_)
    {
-      New(local_length);
+      vector = NewNVector(local_length);
       content = static_cast<N_VectorContent_Parallel>(vector->content);
+   }
+
+   virtual SundialsVector *New(long int local_length) const
+   {
+      return new SundialsParallelVector(comm, local_length);
    }
 
    virtual void SetData(realtype *data)
    {
-      DestroyData();
+      Destroy();
       content->data = data;
-      own_data = false;
+      content->own_data = false;
    }
 
-   virtual realtype *Data() { return content->data; }
-   virtual const realtype *Data() const { return content->data; }
+   virtual void Destroy()
+   {
+      if (content->own_data)
+      {
+         free(content->data);
+         content->data = NULL;
+      }
+   }
 
-   virtual void DestroyData() { if (own_data) delete content->data; }
+   virtual void Swap(SundialsVector *nv)
+   {
+      N_VDestroy(vector);
+      vector  = static_cast<SundialsParallelVector *>(nv)->vector;
+      content = static_cast<N_VectorContent_Parallel>(vector->content);
+   }
 
-   virtual long int Size() const { return N_VGetLocalLength_Parallel(vector); }
+   virtual void SetSize(long int length)
+   {
+      if (!content->own_data)
+      {
+         long int global_length;
+         MPI_Allreduce(&length, &global_length, 1, MPI_LONG, MPI_SUM, content->comm);
+         content->local_length = length;
+         content->global_length = global_length;
+      }
+      else if (content->local_length != length)
+      {
+         N_VDestroy(vector);
+         Swap(New(length));
+      }
+   }
 
    virtual bool Parallel() const { return comm != MPI_COMM_NULL; }
-
-   long int GlobalSize() const { return N_VGetLength_Parallel(vector); }
 
    const MPI_Comm& Comm() const { return comm; }
 };
@@ -366,8 +420,8 @@ void CVODESolver::Init(TimeDependentOperator &f_)
 
    ODESolver::Init(f_);
 
-   // Resize the SundialsVector.
-   y->Resize(f_.Height());
+   // Swap with a new copy that has data and proper height.
+   y->Swap(y->New(f_.Height()));
 
    // Call CVodeInit().
    cvCopyInit(mem, &backup);
@@ -376,7 +430,7 @@ void CVODESolver::Init(TimeDependentOperator &f_)
    cvCopyInit(&backup, mem);
 
    // Deallocate the data in y.
-   y->DestroyData();
+   y->Destroy();
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = CVodeSetUserData(sundials_mem, f);
@@ -581,8 +635,8 @@ void ARKODESolver::Init(TimeDependentOperator &f_)
 
    ODESolver::Init(f_);
 
-   // Allocate the SundialsVector y.
-   y->Resize(f_.Height());
+   // Swap with a new copy that has data and proper height.
+   y->Swap(y->New(f_.Height()));
 
    // Call ARKodeInit().
    arkCopyInit(mem, &backup);
@@ -595,7 +649,7 @@ void ARKODESolver::Init(TimeDependentOperator &f_)
    arkCopyInit(&backup, mem);
 
    // Deallocate the data in y.
-   y->DestroyData();
+   y->Destroy();
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = ARKodeSetUserData(sundials_mem, f);
@@ -827,10 +881,10 @@ void KinSolver::SetOperator(const Operator &op)
    NewtonSolver::SetOperator(op);
    jacobian = NULL;
 
-   // Allocate the SundialsVector y.
-   y->Resize(height);
-   y_scale->Resize(height);
-   f_scale->Resize(height);
+   // Resize the SundialsVector y.
+   y->SetSize(height);
+   y_scale->SetSize(height);
+   f_scale->SetSize(height);
 
    kinCopyInit(mem, &backup);
    flag = KINInit(sundials_mem, KinSolver::Mult, y->ToNVector());
@@ -841,9 +895,9 @@ void KinSolver::SetOperator(const Operator &op)
    MFEM_ASSERT(flag >= 0, "KINInit() failed!");
    kinCopyInit(&backup, mem);
 
-   y->DestroyData();
-   y_scale->DestroyData();
-   f_scale->DestroyData();
+   y->Destroy();
+   y_scale->Destroy();
+   f_scale->Destroy();
 
    // The 'user_data' in KINSOL will be the pointer 'this'.
    flag = KINSetUserData(sundials_mem, this);

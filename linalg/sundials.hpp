@@ -88,40 +88,33 @@ class SundialsVector
 protected:
    N_Vector vector;
 
-   /// Factory method to produce N_Vectors of the current type.
-   virtual N_Vector New(long int length) const = 0;
+   /// Factory method to produce N_Vector of the current type.
+   virtual N_Vector NewNVector(long int length) const = 0;
 
 public:
    virtual ~SundialsVector() { N_VDestroy(vector); }
+
+   /// Factory method to produce SundialsVectors of the current type.
+   virtual SundialsVector *New(long int length) const = 0;
 
    /// Set the underlying data to the pointer.
    // Caller must ensure this is a valid device pointer if necessary.
    virtual void SetData(realtype *data) = 0;
 
-   /// Return a pointer to the underlying data.
-   // Caller must ensure this is handled correctly. This may be a device pointer.
-   virtual realtype *Data() = 0;
-   virtual const realtype *Data() const = 0;
+   /// Release the underlying data.
+   virtual void Destroy() = 0;
 
-   /// Destroy the underlying data.
-   virtual void DestroyData() = 0;
+   /// Swap out this vector with the one pointed to by nv.
+   virtual void Swap(SundialsVector *nv) = 0;
 
-   /// Returns the size of data.
-   virtual long int Size() const = 0;
+   /// Set the size of the vector.
+   virtual void SetSize(long int length) = 0;
 
    /// Returns true if this vector requires MPI communication.
    virtual bool Parallel() const = 0;
 
    /// Accesses the underlying N_Vector for calls to SUNDIALS functions.
    inline N_Vector ToNVector() { return vector; }
-
-   /// Resize the underlying data. Currently allocates a new vector.
-   void Resize(long int length)
-   {
-      DestroyData();
-      N_VDestroy(vector);
-      vector = New(length);
-   }
 };
 
 /// A base class for the MFEM classes wrapping SUNDIALS' solvers.
