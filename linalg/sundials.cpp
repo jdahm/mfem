@@ -158,13 +158,13 @@ static N_Vector NVMakeBare(MPI_Comm comm)
 
 static void NVResize(N_Vector &nv, long int length)
 {
-   N_Vector_ID type = N_VGetVectorID(nv);
-   if (type == SUNDIALS_NVEC_SERIAL)
+   N_Vector_ID nvid = N_VGetVectorID(nv);
+   if (nvid == SUNDIALS_NVEC_SERIAL)
    {
          N_VDestroy(nv);
          nv = N_VNew_Serial(length);
    }
-   else if (type == SUNDIALS_NVEC_PARALLEL)
+   else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
       N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
       MPI_Comm comm = content->comm;
@@ -181,15 +181,15 @@ static void NVResize(N_Vector &nv, long int length)
 
 static void NVDestroyData(N_Vector &nv)
 {
-   N_Vector_ID type = N_VGetVectorID(nv);
-   if (type == SUNDIALS_NVEC_SERIAL)
+   N_Vector_ID nvid = N_VGetVectorID(nv);
+   if (nvid == SUNDIALS_NVEC_SERIAL)
    {
       N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
       long int length = content->length;
       N_VDestroy(nv);
       nv = N_VNewEmpty_Serial(length);
    }
-   else if (type == SUNDIALS_NVEC_PARALLEL)
+   else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
       N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
       long int local_length = content->local_length;
@@ -204,18 +204,18 @@ static void NVDestroyData(N_Vector &nv)
    }
 }
 
-static void NVSetData(N_Vector &nv, realtype *data)
+static void NVSetData(const N_Vector &nv, realtype *data)
 {
-   N_Vector_ID type = N_VGetVectorID(nv);
+   N_Vector_ID nvid = N_VGetVectorID(nv);
 
-   if (type == SUNDIALS_NVEC_SERIAL)
+   if (nvid == SUNDIALS_NVEC_SERIAL)
    {
      N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
      if (content->own_data) mfem_error("Need to NVDestroy() data first!");
      content->data = data;
      content->own_data = false;
    }
-   else if (type == SUNDIALS_NVEC_PARALLEL)
+   else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
       N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
       if (content->own_data) mfem_error("Need to NVDestroy() data first!");
@@ -227,6 +227,28 @@ static void NVSetData(N_Vector &nv, realtype *data)
       mfem_error("Type not supported in NVSetData()");
    }
 }
+
+static long int NVGetLength(const N_Vector &nv)
+{
+   N_Vector_ID nvid = N_VGetVectorID(nv);
+   long int length = 0;
+
+   if (nvid == SUNDIALS_NVEC_SERIAL)
+   {
+      length = N_VGetLength_Serial(nv);
+   }
+   else if (nvid == SUNDIALS_NVEC_PARALLEL)
+   {
+      length = N_VGetLocalLength_Parallel(nv);
+   }
+   else
+   {
+      mfem_error("Type not supported in NVGetLength()");
+   }
+
+   return length;
+}
+
 
 CVODESolver::CVODESolver(int lmm, int iter)
 {
@@ -373,6 +395,7 @@ void CVODESolver::Step(Vector &x, double &t, double &dt)
    CVodeMem mem = Mem(this);
 
    NVSetData(y, x.GetData());
+   MFEM_VERIFY(NVGetLength(y) == x.Size(), "");
 
    if (mem->cv_nst == 0)
    {
@@ -603,6 +626,7 @@ void ARKODESolver::Step(Vector &x, double &t, double &dt)
    ARKodeMem mem = Mem(this);
 
    NVSetData(y, x.GetData());
+   MFEM_VERIFY(NVGetLength(y) == x.Size(), "");
 
    if (mem->ark_nst == 0)
    {
@@ -927,22 +951,11 @@ void KinSolver::Mult(Vector &x,
    flag = KINSetFuncNormTol(sundials_mem, mem->kin_fnormtol);
    MFEM_ASSERT(flag >= 0, "KINSetFuncNormTol() failed!");
 
-   if (!Parallel())
-   {
-      NV_DATA_S(y) = x.GetData();
-      MFEM_VERIFY(NV_LENGTH_S(y) == x.Size(), "");
-      NV_DATA_S(y_scale) = x_scale.GetData();
-      NV_DATA_S(f_scale) = fx_scale.GetData();
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      NV_DATA_P(y) = x.GetData();
-      MFEM_VERIFY(NV_LOCLENGTH_P(y) == x.Size(), "");
-      NV_DATA_P(y_scale) = x_scale.GetData();
-      NV_DATA_P(f_scale) = fx_scale.GetData();
-#endif
-   }
+   NVSetData(y, x.GetData());
+   NVSetData(y_scale, x_scale.GetData());
+   NVSetData(f_scale, fx_scale.GetData());
+
+   MFEM_VERIFY(NVGetLength(y) == x.Size(), "");
 
    if (!iterative_mode) { x = 0.0; }
 
