@@ -32,6 +32,9 @@ struct KINMemRec;
 namespace mfem
 {
 
+// Type of N_Vector to use -- temporary in this branch
+extern N_Vector_ID NVID;
+
 /** @brief Abstract base class, wrapping the custom linear solvers interface in
     SUNDIALS' CVODE and ARKODE solvers. */
 /** For a given ODE system

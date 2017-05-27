@@ -792,6 +792,14 @@ Vector::Vector(N_Vector nv)
          break;
       }
 #endif
+#ifdef MFEM_USE_SUNDIALS_CUDA
+      case SUNDIALS_NVEC_CUDA:
+      {
+         N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+         content->copyFromDev();
+         SetDataAndSize(nv->host(), nv->size());
+      }
+#endif
       default:
          MFEM_ABORT("N_Vector type " << nvid << " is not supported");
    }
@@ -821,6 +829,16 @@ void Vector::ToNVector(N_Vector &nv)
          hpv_local->data = data;
          hpv_local->size = size;
          break;
+      }
+#endif
+#ifdef MFEM_USE_SUNDIALS_CUDA
+      case SUNDIALS_NVEC_CUDA:
+      {
+         N_VDestroy(nv);
+         nv = N_VMake_Cuda(size);
+         N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+         content->host() = data;
+         content->copyToDev();
       }
 #endif
       default:
