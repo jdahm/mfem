@@ -42,6 +42,12 @@ using namespace std;
 namespace mfem
 {
 
+N_Vector_ID NVID = SUNDIALS_NVEC_SERIAL;
+
+#ifdef MFEM_USE_SUNDIALS_CUDA
+typedef nvec::Vector<double, long int> N_VectorCuda;
+#endif
+
 double SundialsODELinearSolver::GetTimeStep(void *sundials_mem)
 {
    return (type == CVODE) ?
@@ -139,7 +145,14 @@ static inline CVodeMem Mem(const CVODESolver *self)
 
 static N_Vector NVMakeBare()
 {
+#ifdef MFEM_USE_SUNDIALS_CUDA
+   if (NVID == SUNDIALS_NVEC_SERIAL)
+      return N_VNewEmpty_Serial(0);
+   else if (NVID == SUNDIALS_NVEC_CUDA)
+      return N_VNewEmpty_Cuda(0);
+#else
    return N_VNewEmpty_Serial(0);
+#endif
 }
 
 #ifdef MFEM_USE_MPI
@@ -173,6 +186,14 @@ static void NVResize(N_Vector &nv, long int length)
       MPI_Allreduce(&length, &global_length, 1, MPI_LONG, MPI_SUM, comm);
       nv = N_VNew_Parallel(comm, length, global_length);
    }
+#ifdef MFEM_USE_SUNDIALS_CUDA
+   else if (type == SUNDIALS_NVEC_CUDA)
+   {
+      // N_VectorCuda *content = static_cast<N_VectorCuda *>(x->content);
+      N_VDestroy(nv);
+      nv = N_VNew_Cuda(length);
+   }
+#endif
    else
    {
       mfem_error("Type not supported in NVResize()");
@@ -198,6 +219,12 @@ static void NVDestroyData(N_Vector &nv)
       N_VDestroy(nv);
       nv = N_VNewEmpty_Parallel(comm, local_length, global_length);
    }
+#ifdef MFEM_USE_SUNDIALS_CUDA
+   else if (type == SUNDIALS_NVEC_CUDA)
+   {
+      // Do nothing here, SetData calls will copy back and forth
+   }
+#endif
    else
    {
       mfem_error("Type not supported in NVDestroyData()");
@@ -222,6 +249,17 @@ static void NVSetData(const N_Vector &nv, realtype *data)
       content->data = data;
       content->own_data = false;
    }
+#ifdef MFEM_USE_SUNDIALS_CUDA
+   else if (type == SUNDIALS_NVEC_CUDA)
+   {
+      N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+      // In this implementation the data comes from the host, but SUNDIALS is using the device
+      realtype *hptr = content->host();
+      content->host() = data;
+      content->copyToDev();
+      content->host() = hptr;
+   }
+#endif
    else
    {
       mfem_error("Type not supported in NVSetData()");

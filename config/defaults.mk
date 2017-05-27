@@ -128,6 +128,9 @@ SUNDIALS_LIB = -Wl,-rpath,$(SUNDIALS_DIR)/lib -L$(SUNDIALS_DIR)/lib\
 ifeq ($(MFEM_USE_MPI),YES)
    SUNDIALS_LIB += -lsundials_nvecparhyp -lsundials_nvecparallel
 endif
+ifeq ($(MFEM_USE_SUNDIALS_CUDA),YES)
+   SUNDIALS_LIB += -lsundials_cuda -lcudart
+endif
 # If SUNDIALS was built with KLU:
 # MFEM_USE_SUITESPARSE = YES
 
