@@ -132,178 +132,107 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
    return 0;
 }
 
-// ---------- [ SundialsVector Methods ] ----------
-
-// ---------- [ Serial ] ----------
-class SundialsSerialVector : public SundialsVector
-{
-protected:
-   N_VectorContent_Serial content;
-
-   virtual N_Vector NewNVector(long int length) const
-   {
-      if(length > 0)
-         return N_VNew_Serial(length);
-      else
-         return N_VNewEmpty_Serial(0);
-   }
-
-public:
-   SundialsSerialVector(long int length)
-   {
-      vector = NewNVector(length);
-      content = static_cast<N_VectorContent_Serial>(vector->content);
-   }
-
-   virtual SundialsVector *New(long int length) const
-   {
-      return new SundialsSerialVector(length);
-   }
-
-   virtual void SetData(realtype *data)
-   {
-      Destroy();
-      content->data = data;
-      content->own_data = false;
-   }
-
-   virtual void Destroy()
-   {
-      if (content->own_data)
-      {
-         free(content->data);
-         content->data = NULL;
-      }
-   }
-
-   virtual void Swap(SundialsVector *nv)
-   {
-      N_VDestroy(vector);
-      vector  = static_cast<SundialsSerialVector *>(nv)->vector;
-      content = static_cast<N_VectorContent_Serial>(vector->content);
-   }
-
-   virtual void SetSize(long int length)
-   {
-      if (!content->own_data)
-      {
-         content->length = length;
-      }
-      else if (content->length != length)
-      {
-         N_VDestroy(vector);
-         Swap(New(length));
-      }
-   }
-
-   virtual bool Parallel() const { return false; }
-};
-
-// ---------- [ Parallel ] ----------
-#ifdef MFEM_USE_MPI
-class SundialsParallelVector : public SundialsVector
-{
-protected:
-   N_VectorContent_Parallel content;
-   MPI_Comm comm;
-
-   virtual N_Vector NewNVector(long int local_length) const
-   {
-      long int global_length = local_length;
-      if (local_length > 0)
-      {
-         MPI_Allreduce(&local_length, &global_length, 1, MPI_LONG, MPI_SUM, comm);
-         return N_VNew_Parallel(comm, local_length, global_length);
-      }
-      else
-      {
-         return N_VNewEmpty_Parallel(comm, 0, 0);
-      }
-   }
-
-public:
-   SundialsParallelVector(MPI_Comm comm_, long int local_length) : comm(comm_)
-   {
-      vector = NewNVector(local_length);
-      content = static_cast<N_VectorContent_Parallel>(vector->content);
-   }
-
-   virtual SundialsVector *New(long int local_length) const
-   {
-      return new SundialsParallelVector(comm, local_length);
-   }
-
-   virtual void SetData(realtype *data)
-   {
-      Destroy();
-      content->data = data;
-      content->own_data = false;
-   }
-
-   virtual void Destroy()
-   {
-      if (content->own_data)
-      {
-         free(content->data);
-         content->data = NULL;
-      }
-   }
-
-   virtual void Swap(SundialsVector *nv)
-   {
-      N_VDestroy(vector);
-      vector  = static_cast<SundialsParallelVector *>(nv)->vector;
-      content = static_cast<N_VectorContent_Parallel>(vector->content);
-   }
-
-   virtual void SetSize(long int length)
-   {
-      if (!content->own_data)
-      {
-         long int global_length;
-         MPI_Allreduce(&length, &global_length, 1, MPI_LONG, MPI_SUM, content->comm);
-         content->local_length = length;
-         content->global_length = global_length;
-      }
-      else if (content->local_length != length)
-      {
-         N_VDestroy(vector);
-         Swap(New(length));
-      }
-   }
-
-   virtual bool Parallel() const { return comm != MPI_COMM_NULL; }
-
-   const MPI_Comm& Comm() const { return comm; }
-};
-#endif
-
-#ifdef MFEM_USE_MPI
-static SundialsVector *NewSundialsVector(MPI_Comm comm, long int length)
-{
-   if (comm != MPI_COMM_NULL)
-      return new SundialsParallelVector(comm, length);
-   else
-      return new SundialsSerialVector(length);
-}
-#endif
-
-static SundialsVector *NewSundialsVector(long int length)
-{
-   return new SundialsSerialVector(length);
-}
-//======================================
-
 static inline CVodeMem Mem(const CVODESolver *self)
 {
    return CVodeMem(self->SundialsMem());
 }
 
+static N_Vector NVMakeBare()
+{
+   return N_VNewEmpty_Serial(0);
+}
+
+#ifdef MFEM_USE_MPI
+static N_Vector NVMakeBare(MPI_Comm comm)
+{
+   if (comm != MPI_COMM_NULL)
+   {
+      return N_VNewEmpty_Parallel(comm, 0, 0);
+   }
+   else
+   {
+      return N_VNewEmpty_Serial(0);
+   }
+}
+#endif
+
+static void NVResize(N_Vector &nv, long int length)
+{
+   N_Vector_ID type = N_VGetVectorID(nv);
+   if (type == SUNDIALS_NVEC_SERIAL)
+   {
+         N_VDestroy(nv);
+         nv = N_VNew_Serial(length);
+   }
+   else if (type == SUNDIALS_NVEC_PARALLEL)
+   {
+      N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
+      MPI_Comm comm = content->comm;
+      N_VDestroy(nv);
+      long int global_length;
+      MPI_Allreduce(&length, &global_length, 1, MPI_LONG, MPI_SUM, comm);
+      nv = N_VNew_Parallel(comm, length, global_length);
+   }
+   else
+   {
+      mfem_error("Type not supported in NVResize()");
+   }
+}
+
+static void NVDestroyData(N_Vector &nv)
+{
+   N_Vector_ID type = N_VGetVectorID(nv);
+   if (type == SUNDIALS_NVEC_SERIAL)
+   {
+      N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
+      long int length = content->length;
+      N_VDestroy(nv);
+      nv = N_VNewEmpty_Serial(length);
+   }
+   else if (type == SUNDIALS_NVEC_PARALLEL)
+   {
+      N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
+      long int local_length = content->local_length;
+      long int global_length = content->global_length;
+      MPI_Comm comm = content->comm;
+      N_VDestroy(nv);
+      nv = N_VNewEmpty_Parallel(comm, local_length, global_length);
+   }
+   else
+   {
+      mfem_error("Type not supported in NVDestroyData()");
+   }
+}
+
+static void NVSetData(N_Vector &nv, realtype *data)
+{
+   N_Vector_ID type = N_VGetVectorID(nv);
+
+   if (type == SUNDIALS_NVEC_SERIAL)
+   {
+     N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
+     if (content->own_data) mfem_error("Need to NVDestroy() data first!");
+     content->data = data;
+     content->own_data = false;
+   }
+   else if (type == SUNDIALS_NVEC_PARALLEL)
+   {
+      N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
+      if (content->own_data) mfem_error("Need to NVDestroy() data first!");
+      content->data = data;
+      content->own_data = false;
+   }
+   else
+   {
+      mfem_error("Type not supported in NVSetData()");
+   }
+}
+
 CVODESolver::CVODESolver(int lmm, int iter)
 {
-   // Create an empty SundialsVector.
-   y = NewSundialsVector(0);
-   MFEM_ASSERT(y, "error in NewSundialsVector()");
+   // Allocate an empty serial N_Vector wrapper in y.
+   y = NVMakeBare();
+   MFEM_ASSERT(y, "error in NVMakeBare()");
 
    // Create the solver memory.
    sundials_mem = CVodeCreate(lmm, iter);
@@ -321,9 +250,8 @@ CVODESolver::CVODESolver(int lmm, int iter)
 
 CVODESolver::CVODESolver(MPI_Comm comm, int lmm, int iter)
 {
-   // Create an empty SundialsVector.
-   y = NewSundialsVector(comm, 0);
-   MFEM_ASSERT(y, "error in NewSundialsVector()");
+   NVMakeBare(comm);
+   MFEM_ASSERT(y, "error in NVMakeBare()");
 
    // Create the solver memory.
    sundials_mem = CVodeCreate(lmm, iter);
@@ -420,17 +348,17 @@ void CVODESolver::Init(TimeDependentOperator &f_)
 
    ODESolver::Init(f_);
 
-   // Swap with a new copy that has data and proper height.
-   y->Swap(y->New(f_.Height()));
+   // Set actual size and data in the N_Vector y.
+   NVResize(y, f_.Height());
 
    // Call CVodeInit().
    cvCopyInit(mem, &backup);
-   flag = CVodeInit(mem, ODEMult, f_.GetTime(), y->ToNVector());
+   flag = CVodeInit(mem, ODEMult, f_.GetTime(), y);
    MFEM_ASSERT(flag >= 0, "CVodeInit() failed!");
    cvCopyInit(&backup, mem);
 
-   // Deallocate the data in y.
-   y->Destroy();
+   // Delete the allocated data in y.
+   NVDestroyData(y);
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = CVodeSetUserData(sundials_mem, f);
@@ -444,8 +372,7 @@ void CVODESolver::Step(Vector &x, double &t, double &dt)
 {
    CVodeMem mem = Mem(this);
 
-   // Set the data pointer in y.
-   y->SetData(x.GetData());
+   NVSetData(y, x.GetData());
 
    if (mem->cv_nst == 0)
    {
@@ -456,12 +383,12 @@ void CVODESolver::Step(Vector &x, double &t, double &dt)
       }
       // Set the actual t0 and y0.
       mem->cv_tn = t;
-      N_VScale(ONE, y->ToNVector(), mem->cv_zn[0]);
+      N_VScale(ONE, y, mem->cv_zn[0]);
    }
 
    double tout = t + dt;
    // The actual time integration.
-   flag = CVode(sundials_mem, tout, y->ToNVector(), &t, mem->cv_taskc);
+   flag = CVode(sundials_mem, tout, y, &t, mem->cv_taskc);
    MFEM_ASSERT(flag >= 0, "CVode() failed!");
 
    // Return the last incremental step size.
@@ -487,7 +414,7 @@ void CVODESolver::PrintInfo() const
 
 CVODESolver::~CVODESolver()
 {
-   delete y;
+   N_VDestroy(y);
    CVodeFree(&sundials_mem);
 }
 
@@ -499,9 +426,8 @@ static inline ARKodeMem Mem(const ARKODESolver *self)
 ARKODESolver::ARKODESolver(Type type)
    : use_implicit(type == IMPLICIT), irk_table(-1), erk_table(-1)
 {
-   // Create an empty SundialsVector.
-   y = NewSundialsVector(0);
-   MFEM_ASSERT(y, "error in NewSundialsVector()");
+   y = NVMakeBare();
+   MFEM_ASSERT(y, "error in NVMakeBare()");
 
    // Create the solver memory.
    sundials_mem = ARKodeCreate();
@@ -519,9 +445,8 @@ ARKODESolver::ARKODESolver(Type type)
 ARKODESolver::ARKODESolver(MPI_Comm comm, Type type)
    : use_implicit(type == IMPLICIT), irk_table(-1), erk_table(-1)
 {
-   // Create an empty SundialsVector.
-   y = NewSundialsVector(comm, 0);
-   MFEM_ASSERT(y, "error in NewSundialsVector()");
+   y = NVMakeBare(comm);
+   MFEM_ASSERT(y, "error in NVMakeBare()");
 
    // Create the solver memory.
    sundials_mem = ARKodeCreate();
@@ -635,21 +560,21 @@ void ARKODESolver::Init(TimeDependentOperator &f_)
 
    ODESolver::Init(f_);
 
-   // Swap with a new copy that has data and proper height.
-   y->Swap(y->New(f_.Height()));
+   // Set actual size and data in the N_Vector y.
+   NVResize(y, f_.Height());
 
    // Call ARKodeInit().
    arkCopyInit(mem, &backup);
    double t = f_.GetTime();
    // TODO: IMEX interface and example.
    flag = (use_implicit) ?
-           ARKodeInit(sundials_mem, NULL, ODEMult, t, y->ToNVector()) :
-           ARKodeInit(sundials_mem, ODEMult, NULL, t, y->ToNVector());
+          ARKodeInit(sundials_mem, NULL, ODEMult, t, y) :
+          ARKodeInit(sundials_mem, ODEMult, NULL, t, y);
    MFEM_ASSERT(flag >= 0, "CVodeInit() failed!");
    arkCopyInit(&backup, mem);
 
-   // Deallocate the data in y.
-   y->Destroy();
+   // Delete the allocated data in y.
+   NVDestroyData(y);
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = ARKodeSetUserData(sundials_mem, f);
@@ -677,8 +602,7 @@ void ARKODESolver::Step(Vector &x, double &t, double &dt)
 {
    ARKodeMem mem = Mem(this);
 
-   // Set the data pointer in y.
-   y->SetData(x.GetData());
+   NVSetData(y, x.GetData());
 
    if (mem->ark_nst == 0)
    {
@@ -691,12 +615,12 @@ void ARKODESolver::Step(Vector &x, double &t, double &dt)
       mem->ark_tn = t;
       mem->ark_tnew = t;
 
-      N_VScale(ONE, y->ToNVector(), mem->ark_ycur);
+      N_VScale(ONE, y, mem->ark_ycur);
    }
 
    double tout = t + dt;
    // The actual time integration.
-   flag = ARKode(sundials_mem, tout, y->ToNVector(), &t, mem->ark_taskc);
+   flag = ARKode(sundials_mem, tout, y, &t, mem->ark_taskc);
    MFEM_ASSERT(flag >= 0, "ARKode() failed!");
 
    // Return the last incremental step size.
@@ -721,7 +645,7 @@ void ARKODESolver::PrintInfo() const
 
 ARKODESolver::~ARKODESolver()
 {
-   delete y;
+   N_VDestroy(y);
    ARKodeFree(&sundials_mem);
 }
 
@@ -803,14 +727,14 @@ int KinSolver::LinSysSolve(KINMemRec *kin_mem, N_Vector x, N_Vector b,
 KinSolver::KinSolver(int strategy, bool oper_grad)
    : use_oper_grad(oper_grad), jacobian(NULL)
 {
-   // Create an empty SundialsVector.
-   y = NewSundialsVector(0);
-   y_scale = NewSundialsVector(0);
-   f_scale = NewSundialsVector(0);
-   MFEM_ASSERT(y, "error in NewSundialsVector()");
+   // Allocate empty serial N_Vectors.
+   y = N_VNewEmpty_Serial(0);
+   y_scale = N_VNewEmpty_Serial(0);
+   f_scale = N_VNewEmpty_Serial(0);
+   MFEM_ASSERT(y && y_scale && f_scale, "Error in N_VNewEmpty_Serial().");
 
    sundials_mem = KINCreate();
-   MFEM_ASSERT(sundials_mem, "Error in KINCreate()");
+   MFEM_ASSERT(sundials_mem, "Error in KINCreate().");
 
    Mem(this)->kin_globalstrategy = strategy;
    // Default abs_tol, print_level.
@@ -825,11 +749,10 @@ KinSolver::KinSolver(int strategy, bool oper_grad)
 KinSolver::KinSolver(MPI_Comm comm, int strategy, bool oper_grad)
    : use_oper_grad(oper_grad), jacobian(NULL)
 {
-   // Create an empty SundialsVector.
-   y = NewSundialsVector(0);
-   y_scale = NewSundialsVector(0);
-   f_scale = NewSundialsVector(0);
-   MFEM_ASSERT(y, "error in NewSundialsVector()");
+   y = NVMakeBare(comm);
+   y_scale = NVMakeBare(comm);
+   f_scale = NVMakeBare(comm);
+   MFEM_ASSERT(y && y_scale && f_scale, "Error in NVMakeBare().");
 
    sundials_mem = KINCreate();
    MFEM_ASSERT(sundials_mem, "Error in KINCreate().");
@@ -881,13 +804,13 @@ void KinSolver::SetOperator(const Operator &op)
    NewtonSolver::SetOperator(op);
    jacobian = NULL;
 
-   // Resize the SundialsVector y.
-   y->SetSize(height);
-   y_scale->SetSize(height);
-   f_scale->SetSize(height);
+   // Set actual size and data in the N_Vector y.
+   NVResize(y, height);
+   NVResize(y_scale, height);
+   NVResize(f_scale, height);
 
    kinCopyInit(mem, &backup);
-   flag = KINInit(sundials_mem, KinSolver::Mult, y->ToNVector());
+   flag = KINInit(sundials_mem, KinSolver::Mult, y);
    // Initialization of kin_pp; otherwise, for a custom Jacobian inversion,
    // the first time we enter the linear solve, we will get uninitialized
    // initial guess (matters when iterative_mode = true).
@@ -895,9 +818,8 @@ void KinSolver::SetOperator(const Operator &op)
    MFEM_ASSERT(flag >= 0, "KINInit() failed!");
    kinCopyInit(&backup, mem);
 
-   y->Destroy();
-   y_scale->Destroy();
-   f_scale->Destroy();
+   // Delete the allocated data in y.
+   NVDestroyData(y);
 
    // The 'user_data' in KINSOL will be the pointer 'this'.
    flag = KINSetUserData(sundials_mem, this);
@@ -957,11 +879,10 @@ void KinSolver::Mult(const Vector &b, Vector &x) const
       // Note that KINSOL uses infinity norms.
       double norm;
 #ifdef MFEM_USE_MPI
-      if (y->Parallel())
+      if (Parallel())
       {
          double lnorm = r.Normlinf();
-         const SundialsParallelVector *yp = static_cast<const SundialsParallelVector*>(y);
-         MPI_Allreduce(&lnorm, &norm, 1, MPI_DOUBLE, MPI_MAX, yp->Comm());
+         MPI_Allreduce(&lnorm, &norm, 1, MPI_DOUBLE, MPI_MAX, NV_COMM_P(y));
       }
       else
 #endif
@@ -1006,15 +927,26 @@ void KinSolver::Mult(Vector &x,
    flag = KINSetFuncNormTol(sundials_mem, mem->kin_fnormtol);
    MFEM_ASSERT(flag >= 0, "KINSetFuncNormTol() failed!");
 
-   y->SetData(x.GetData());
-   y_scale->SetData(x_scale.GetData());
-   f_scale->SetData(fx_scale.GetData());
+   if (!Parallel())
+   {
+      NV_DATA_S(y) = x.GetData();
+      MFEM_VERIFY(NV_LENGTH_S(y) == x.Size(), "");
+      NV_DATA_S(y_scale) = x_scale.GetData();
+      NV_DATA_S(f_scale) = fx_scale.GetData();
+   }
+   else
+   {
+#ifdef MFEM_USE_MPI
+      NV_DATA_P(y) = x.GetData();
+      MFEM_VERIFY(NV_LOCLENGTH_P(y) == x.Size(), "");
+      NV_DATA_P(y_scale) = x_scale.GetData();
+      NV_DATA_P(f_scale) = fx_scale.GetData();
+#endif
+   }
 
    if (!iterative_mode) { x = 0.0; }
 
-   flag = KINSol(sundials_mem, y->ToNVector(),
-                 mem->kin_globalstrategy,
-                 y_scale->ToNVector(), f_scale->ToNVector());
+   flag = KINSol(sundials_mem, y, mem->kin_globalstrategy, y_scale, f_scale);
 
    converged  = (flag >= 0);
    final_iter = mem->kin_nni;
@@ -1023,9 +955,9 @@ void KinSolver::Mult(Vector &x,
 
 KinSolver::~KinSolver()
 {
-   delete y;
-   delete y_scale;
-   delete f_scale;
+   N_VDestroy(y);
+   N_VDestroy(y_scale);
+   N_VDestroy(f_scale);
    KINFree(&sundials_mem);
 }
 
