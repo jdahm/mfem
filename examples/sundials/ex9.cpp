@@ -29,6 +29,9 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <cuda_runtime.h>
+#include <cuda_profiler_api.h>
+#include <nvToolsExt.h>
 
 #ifndef MFEM_USE_SUNDIALS
 #error This example requires that MFEM is built with MFEM_USE_SUNDIALS=YES
@@ -145,6 +148,7 @@ int main(int argc, char *argv[])
    Mesh *mesh = new Mesh(mesh_file, 1, 1);
    int dim = mesh->Dimension();
 
+   cudaProfilerStart();
    // 3. Define the ODE solver used for time integration. Several explicit
    //    Runge-Kutta methods are available.
    ODESolver *ode_solver = NULL;
@@ -173,6 +177,7 @@ int main(int argc, char *argv[])
          cout << "Unknown ODE solver type: " << ode_solver_type << '\n';
          return 3;
    }
+   nvtxMarkA("After creating CVODESolver");
 
    // 4. Refine the mesh to increase the resolution. In this example we do
    //    'ref_levels' of uniform refinement, where 'ref_levels' is a
@@ -293,10 +298,12 @@ int main(int argc, char *argv[])
    double t = 0.0;
    adv.SetTime(t);
    ode_solver->Init(adv);
+   nvtxMarkA("After Init");
 
    bool done = false;
    for (int ti = 0; !done; )
    {
+      nvtxMarkA("New step");
       double dt_real = min(dt, t_final - t);
       ode_solver->Step(u, t, dt_real);
       ti++;
@@ -322,7 +329,7 @@ int main(int argc, char *argv[])
          }
       }
    }
-
+   cudaProfilerStop();
    // 9. Save the final solution. This output can be viewed later using GLVis:
    //    "glvis -m ex9.mesh -g ex9-final.gf".
    {
