@@ -17,6 +17,10 @@
 #include <nvector/nvector_parallel.h>
 #include <nvector/nvector_parhyp.h>
 #endif
+#ifdef MFEM_USE_SUNDIALS_CUDA
+#include <nvector/nvector_cuda.h>
+#include <nvector/cuda/Vector.hpp>
+#endif
 
 #include <iostream>
 #include <iomanip>
@@ -760,6 +764,10 @@ double Vector::DistanceTo(const double *p) const
 
 #ifdef MFEM_USE_SUNDIALS
 
+#ifdef MFEM_USE_SUNDIALS_CUDA
+typedef nvec::Vector<double, long int> N_VectorCuda;
+#endif
+
 Vector::Vector(N_Vector nv)
 {
    N_Vector_ID nvid = N_VGetVectorID(nv);
@@ -784,7 +792,8 @@ Vector::Vector(N_Vector nv)
       {
          N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
          content->copyFromDev();
-         SetDataAndSize(nv->host(), nv->size());
+         SetDataAndSize(content->host(), content->size());
+         break;
       }
 #endif
       default:
@@ -822,10 +831,10 @@ void Vector::ToNVector(N_Vector &nv)
       case SUNDIALS_NVEC_CUDA:
       {
          N_VDestroy(nv);
-         nv = N_VMake_Cuda(size);
+         nv = N_VNew_Cuda(size);
          N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-         content->host() = data;
-         content->copyToDev();
+         content->setFromHost(data);
+         break;
       }
 #endif
       default:

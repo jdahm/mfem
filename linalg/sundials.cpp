@@ -19,6 +19,10 @@
 #endif
 
 #include <nvector/nvector_serial.h>
+#ifdef MFEM_USE_SUNDIALS_CUDA
+#include <nvector/nvector_cuda.h>
+#include <nvector/cuda/Vector.hpp>
+#endif
 #ifdef MFEM_USE_MPI
 #include <nvector/nvector_parallel.h>
 #endif
@@ -135,6 +139,18 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
    TimeDependentOperator *f = static_cast<TimeDependentOperator *>(td_oper);
    f->SetTime(t);
    f->Mult(mfem_y, mfem_ydot);
+
+#ifdef MFEM_USE_SUNDIALS_CUDA
+   // This could be avoided with a sequence
+   // Copy back to the device for SUNDIALS to see the new ydot
+   // TODO This perhaps should not be needed to make this work
+   N_Vector_ID nvid = N_VGetVectorID(ydot);
+   if (nvid == SUNDIALS_NVEC_CUDA)
+   {
+      N_VectorCuda *content = static_cast<N_VectorCuda *>(ydot->content);
+      content->copyToDev();
+   }
+#endif
    return 0;
 }
 
@@ -147,9 +163,17 @@ static N_Vector NVMakeBare()
 {
 #ifdef MFEM_USE_SUNDIALS_CUDA
    if (NVID == SUNDIALS_NVEC_SERIAL)
+   {
       return N_VNewEmpty_Serial(0);
+   }
    else if (NVID == SUNDIALS_NVEC_CUDA)
+   {
       return N_VNewEmpty_Cuda(0);
+   }
+   else
+   {
+     mfem_error("Type not supported in MVMakeBare()");
+   }
 #else
    return N_VNewEmpty_Serial(0);
 #endif
@@ -177,6 +201,7 @@ static void NVResize(N_Vector &nv, long int length)
          N_VDestroy(nv);
          nv = N_VNew_Serial(length);
    }
+#ifdef MFEM_USE_MPI
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
       N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
@@ -186,10 +211,10 @@ static void NVResize(N_Vector &nv, long int length)
       MPI_Allreduce(&length, &global_length, 1, MPI_LONG, MPI_SUM, comm);
       nv = N_VNew_Parallel(comm, length, global_length);
    }
+#endif
 #ifdef MFEM_USE_SUNDIALS_CUDA
-   else if (type == SUNDIALS_NVEC_CUDA)
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
-      // N_VectorCuda *content = static_cast<N_VectorCuda *>(x->content);
       N_VDestroy(nv);
       nv = N_VNew_Cuda(length);
    }
@@ -210,6 +235,7 @@ static void NVDestroyData(N_Vector &nv)
       N_VDestroy(nv);
       nv = N_VNewEmpty_Serial(length);
    }
+#ifdef MFEM_USE_MPI
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
       N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
@@ -219,8 +245,9 @@ static void NVDestroyData(N_Vector &nv)
       N_VDestroy(nv);
       nv = N_VNewEmpty_Parallel(comm, local_length, global_length);
    }
+#endif
 #ifdef MFEM_USE_SUNDIALS_CUDA
-   else if (type == SUNDIALS_NVEC_CUDA)
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
       // Do nothing here, SetData calls will copy back and forth
    }
@@ -242,6 +269,7 @@ static void NVSetData(const N_Vector &nv, realtype *data)
      content->data = data;
      content->own_data = false;
    }
+#ifdef MFEM_USE_MPI
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
       N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
@@ -249,15 +277,12 @@ static void NVSetData(const N_Vector &nv, realtype *data)
       content->data = data;
       content->own_data = false;
    }
+#endif
 #ifdef MFEM_USE_SUNDIALS_CUDA
-   else if (type == SUNDIALS_NVEC_CUDA)
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
       N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-      // In this implementation the data comes from the host, but SUNDIALS is using the device
-      realtype *hptr = content->host();
-      content->host() = data;
-      content->copyToDev();
-      content->host() = hptr;
+      content->setFromHost(data);
    }
 #endif
    else
@@ -275,10 +300,19 @@ static long int NVGetLength(const N_Vector &nv)
    {
       length = N_VGetLength_Serial(nv);
    }
+#ifdef MFEM_USE_MPI
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
       length = N_VGetLocalLength_Parallel(nv);
    }
+#endif
+#ifdef MFEM_USE_SUNDIALS_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
+   {
+      N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+      length = content->size();
+   }
+#endif
    else
    {
       mfem_error("Type not supported in NVGetLength()");

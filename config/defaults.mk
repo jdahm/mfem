@@ -70,6 +70,7 @@ MFEM_USE_OPENMP      = NO
 MFEM_USE_MEMALLOC    = YES
 MFEM_TIMER_TYPE      = $(if $(NOTMAC),2,0)
 MFEM_USE_SUNDIALS    = NO
+MFEM_USE_SUNDIALS_CUDA = NO
 MFEM_USE_MESQUITE    = NO
 MFEM_USE_SUITESPARSE = NO
 MFEM_USE_SUPERLU     = NO
@@ -129,7 +130,11 @@ ifeq ($(MFEM_USE_MPI),YES)
    SUNDIALS_LIB += -lsundials_nvecparhyp -lsundials_nvecparallel
 endif
 ifeq ($(MFEM_USE_SUNDIALS_CUDA),YES)
-   SUNDIALS_LIB += -lsundials_cuda -lcudart
+   ifndef CUDA_DIR
+      CUDA_DIR = /usr/local/cuda
+   endif
+   SUNDIALS_OPT += -I$(CUDA_DIR)/include
+   SUNDIALS_LIB += -L$(CUDA_DIR)/lib64 -lsundials_nveccuda -lcudart
 endif
 # If SUNDIALS was built with KLU:
 # MFEM_USE_SUITESPARSE = YES
