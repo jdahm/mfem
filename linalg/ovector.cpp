@@ -15,6 +15,16 @@
 
 #include "ovector.hpp"
 
+#if defined(MFEM_USE_SUNDIALS) && defined(MFEM_USE_MPI)
+#include <nvector/nvector_parallel.h>
+#include <nvector/nvector_parhyp.h>
+#endif
+#ifdef MFEM_USE_SUNDIALS_CUDA
+#include <occa/modes/cuda.hpp>
+#include <nvector/nvector_cuda.h>
+#include <nvector/cuda/Vector.hpp>
+#endif
+
 namespace mfem {
   OccaVector::OccaVector() :
     size(0) {}
@@ -56,6 +66,42 @@ namespace mfem {
     size(0) {
     SetSize(device, v.Size(), v.GetData());
   }
+
+#ifdef MFEM_USE_SUNDIALS
+
+#ifdef MFEM_USE_SUNDIALS_CUDA
+  typedef nvec::Vector<double, long int> N_VectorCuda;
+#endif
+
+  /// Creates vector based on an N_Vector
+  OccaVector::OccaVector(const N_Vector &nv) {
+    N_Vector_ID nvid = N_VGetVectorID(nv);
+
+    if (nvid == SUNDIALS_NVEC_SERIAL)
+    {
+      N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
+      SetSize(occa::getDevice(), content->length, content->data);
+    }
+    else if (nvid == SUNDIALS_NVEC_PARALLEL)
+    {
+      mfem_error("TBD");
+    }
+#ifdef MFEM_USE_SUNDIALS_CUDA
+    else if (nvid == SUNDIALS_NVEC_CUDA)
+    {
+      N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+      data = occa::cuda::wrapMemory(occa::getDevice(), content->device(),
+                                                content->size() * sizeof(double));
+      size = content->size();
+    }
+#endif
+    else
+    {
+      mfem_error("Type not supported in OccaVector constructor");
+    }
+
+  }
+#endif
 
   /// Convert to Vector
   OccaVector::operator Vector() const {

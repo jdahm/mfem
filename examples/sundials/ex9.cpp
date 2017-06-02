@@ -96,9 +96,6 @@ int main(int argc, char *argv[])
    bool binary = false;
    int vis_steps = 5;
 
-   // Use CUDA N_Vectors
-   NVID = SUNDIALS_NVEC_CUDA;
-
    // Relative and absolute tolerances for CVODE and ARKODE.
    const double reltol = 1e-2, abstol = 1e-2;
 

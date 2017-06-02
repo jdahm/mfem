@@ -27,13 +27,44 @@
 #include <arkode/arkode.h>
 #include <kinsol/kinsol.h>
 
+#include <cvode/cvode_impl.h>
+#include <cvode/cvode_spgmr.h>
+
+// This just hides a warning (to be removed after it's fixed in SUNDIALS).
+#ifdef MSG_TIME_INT
+#undef MSG_TIME_INT
+#endif
+
+#include <arkode/arkode_impl.h>
+#include <arkode/arkode_spgmr.h>
+#include <kinsol/kinsol_impl.h>
+#include <kinsol/kinsol_spgmr.h>
+
 struct KINMemRec;
 
 namespace mfem
 {
 
-// Type of N_Vector to use -- temporary in this branch
-extern N_Vector_ID NVID;
+   // N_Vector helper functions
+   // TODO These should be able to remain static
+   N_Vector NVMakeBare();
+
+#ifdef MFEM_USE_MPI
+   N_Vector NVMakeBare(MPI_Comm comm);
+#endif
+
+   void NVResize(N_Vector &nv, long int length);
+
+   void NVDestroyData(N_Vector &nv);
+
+   void NVSetData(const N_Vector &nv, Vector &v);
+
+#ifdef MFEM_USE_OCCA
+   void NVSetData(const N_Vector &nv, OccaVector &v);
+#endif
+
+   long int NVGetLength(const N_Vector &nv);
+
 
 /** @brief Abstract base class, wrapping the custom linear solvers interface in
     SUNDIALS' CVODE and ARKODE solvers. */
@@ -201,7 +232,13 @@ public:
                          of the solution output, as returned by CVode().
        @param[in,out] dt Input: desired time step. Output: the last incremental
                          time step used. */
+   template <class TVector>
+   void TStep(TVector &x, double &t, double &dt);
+
    virtual void Step(Vector &x, double &t, double &dt);
+#ifdef MFEM_USE_OCCA
+   virtual void Step(OccaVector &x, double &t, double &dt);
+#endif
 
    /// Print CVODE statistics.
    void PrintInfo() const;
@@ -209,6 +246,35 @@ public:
    /// Destroy the associated CVODE memory.
    virtual ~CVODESolver();
 };
+
+template <class TVector>
+void CVODESolver::TStep(TVector &x, double &t, double &dt)
+{
+   CVodeMem mem = static_cast<CVodeMem>(SundialsMem());
+
+   NVSetData(y, x);
+   MFEM_VERIFY(NVGetLength(y) == static_cast<long int>(x.Size()), "");
+
+   if (mem->cv_nst == 0)
+   {
+      // Set default linear solver, if not already set.
+      if (mem->cv_iter == CV_NEWTON && mem->cv_lsolve == NULL)
+      {
+         flag = CVSpgmr(sundials_mem, PREC_NONE, 0);
+      }
+      // Set the actual t0 and y0.
+      mem->cv_tn = t;
+      N_VScale(ONE, y, mem->cv_zn[0]);
+   }
+
+   double tout = t + dt;
+   // The actual time integration.
+   flag = CVode(sundials_mem, tout, y, &t, mem->cv_taskc);
+   MFEM_ASSERT(flag >= 0, "CVode() failed!");
+
+   // Return the last incremental step size.
+   dt = mem->cv_hu;
+}
 
 /// Wrapper for SUNDIALS' ARKODE library -- Runge-Kutta time integration.
 /**
@@ -294,7 +360,13 @@ public:
                          of the solution output, as returned by CVode().
        @param[in,out] dt Input: desired time step. Output: the last incremental
                          time step used. */
+   template <class TVector>
+   void TStep(TVector &x, double &t, double &dt);
+
    virtual void Step(Vector &x, double &t, double &dt);
+#ifdef MFEM_USE_OCCA
+   virtual void Step(OccaVector &x, double &t, double &dt);
+#endif
 
    /// Print ARKODE statistics.
    void PrintInfo() const;
@@ -302,6 +374,37 @@ public:
    /// Destroy the associated ARKODE memory.
    virtual ~ARKODESolver();
 };
+
+template <class TVector>
+void ARKODESolver::TStep(TVector &x, double &t, double &dt)
+{
+   ARKodeMem mem = static_cast<ARKodeMem>(SundialsMem());
+
+   NVSetData(y, x);
+   MFEM_VERIFY(NVGetLength(y) == static_cast<long int>(x.Size()), "");
+
+   if (mem->ark_nst == 0)
+   {
+      // Set default linear solver, if not already set.
+      if (mem->ark_implicit && mem->ark_linit == NULL)
+      {
+         flag = ARKSpgmr(sundials_mem, PREC_NONE, 0);
+      }
+      // Set the actual t0 and y0.
+      mem->ark_tn = t;
+      mem->ark_tnew = t;
+
+      N_VScale(ONE, y, mem->ark_ycur);
+   }
+
+   double tout = t + dt;
+   // The actual time integration.
+   flag = ARKode(sundials_mem, tout, y, &t, mem->ark_taskc);
+   MFEM_ASSERT(flag >= 0, "ARKode() failed!");
+
+   // Return the last incremental step size.
+   dt = mem->ark_h;
+}
 
 /// Wrapper for SUNDIALS' KINSOL library -- Nonlinear solvers.
 /**
@@ -389,7 +492,14 @@ public:
        @param[in,out] x  On input, initial guess, if @a #iterative_mode = true,
                          otherwise the initial guess is zero; on output, the
                          solution. */
+
+   template <class TVector>
+   void TMult(const TVector &b, TVector &x) const;
+
    virtual void Mult(const Vector &b, Vector &x) const;
+#ifdef MFEM_USE_OCCA
+   virtual void Mult(const OccaVector &b, OccaVector &x) const;
+#endif
 
    /// Solve the nonlinear system F(x) = 0.
    /** Calls KINSol() to solve the nonlinear system. Before calling KINSol(),
@@ -405,7 +515,94 @@ public:
                                D*F(x) has all elements roughly the same when
                                x is not too close to a solution. */
    void Mult(Vector &x, const Vector &x_scale, const Vector &fx_scale) const;
+#ifdef MFEM_USE_OCCA
+   void Mult(OccaVector &x, const OccaVector &x_scale, const OccaVector &fx_scale) const;
+#endif
+
+  template <class TVector>
+  void TMult(TVector &x, const TVector &x_scale, const TVector &fx_scale) const;
+
 };
+
+template <class TVector>
+void KinSolver::TMult(const TVector &b, TVector &x) const
+{
+   KINMem mem = static_cast<KINMem>(SundialsMem());
+
+   // Uses c = 1, corresponding to x_scale.
+   c = 1.0;
+
+   if (!iterative_mode) { x = 0.0; }
+
+   // For relative tolerance, r = 1 / |residual(x)|, corresponding to fx_scale.
+   if (rel_tol > 0.0)
+   {
+      oper->Mult(x, r);
+
+      // Note that KINSOL uses infinity norms.
+      double norm;
+#ifdef MFEM_USE_MPI
+      if (Parallel())
+      {
+         double lnorm = r.Normlinf();
+         MPI_Allreduce(&lnorm, &norm, 1, MPI_DOUBLE, MPI_MAX, NV_COMM_P(y));
+      }
+      else
+ #endif
+      {
+         norm = r.Normlinf();
+      }
+
+      if (abs_tol > rel_tol * norm)
+      {
+         r = 1.0;
+         mem->kin_fnormtol = abs_tol;
+      }
+      else
+      {
+         r =  1.0 / norm;
+         mem->kin_fnormtol = rel_tol;
+      }
+   }
+   else
+   {
+      mem->kin_fnormtol = abs_tol;
+      r = 1.0;
+   }
+}
+
+template <class TVector>
+void KinSolver::TMult(TVector &x, const TVector &x_scale, const TVector &fx_scale) const
+{
+   KINMem mem = static_cast<KINMem>(SundialsMem());
+
+   flag = KINSetPrintLevel(sundials_mem, print_level);
+   MFEM_ASSERT(flag >= 0, "KINSetPrintLevel() failed!");
+
+   flag = KINSetNumMaxIters(sundials_mem, max_iter);
+   MFEM_ASSERT(flag >= 0, "KINSetNumMaxIters() failed!");
+
+   flag = KINSetScaledStepTol(sundials_mem, mem->kin_scsteptol);
+   MFEM_ASSERT(flag >= 0, "KINSetScaledStepTol() failed!");
+
+   flag = KINSetFuncNormTol(sundials_mem, mem->kin_fnormtol);
+   MFEM_ASSERT(flag >= 0, "KINSetFuncNormTol() failed!");
+
+   NVSetData(y, x);
+   NVSetData(y_scale, const_cast<TVector &>(x_scale));
+   NVSetData(f_scale, const_cast<TVector &>(fx_scale));
+
+   MFEM_VERIFY(NVGetLength(y) == static_cast<long int>(x.Size()), "");
+
+   if (!iterative_mode) { x = 0.0; }
+
+   flag = KINSol(sundials_mem, y, mem->kin_globalstrategy, y_scale, f_scale);
+
+   converged  = (flag >= 0);
+   final_iter = mem->kin_nni;
+   final_norm = mem->kin_fnorm;
+}
+
 
 }  // namespace mfem
 

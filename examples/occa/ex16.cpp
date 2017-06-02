@@ -217,7 +217,13 @@ int main(int argc, char *argv[]) {
   // 3. Define the ODE solver used for time integration. Several implicit
   //    singly diagonal implicit Runge-Kutta (SDIRK) methods, as well as
   //    explicit Runge-Kutta methods are available.
-  ODESolver *ode_solver;
+  ODESolver *ode_solver = NULL;
+  ARKODESolver *arkode  = NULL;
+  CVODESolver *cvode    = NULL;
+
+  // Relative and absolute tolerances for CVODE and ARKODE.
+  const double reltol = 1e-1, abstol = 1e-1;
+
   switch (ode_solver_type) {
     // Implicit L-stable methods
   case 1:  ode_solver = new OccaBackwardEulerSolver; break;
@@ -232,6 +238,19 @@ int main(int argc, char *argv[]) {
   case 22: ode_solver = new OccaImplicitMidpointSolver; break;
   case 23: ode_solver = new OccaSDIRK23Solver; break;
   case 24: ode_solver = new OccaSDIRK34Solver; break;
+    // SUNDIALS solvers
+  case 25:
+    cvode = new CVODESolver(CV_ADAMS, CV_FUNCTIONAL);
+    cvode->SetSStolerances(reltol, abstol);
+    cvode->SetMaxStep(dt);
+    ode_solver = cvode; break;
+  case 26:
+  case 27:
+    arkode = new ARKODESolver(ARKODESolver::EXPLICIT);
+    arkode->SetSStolerances(reltol, abstol);
+    arkode->SetMaxStep(dt);
+    if (ode_solver_type == 27) { arkode->SetERKTableNum(FEHLBERG_13_7_8); }
+    ode_solver = arkode; break;
   default:
     cout << "Unknown ODE solver type: " << ode_solver_type << '\n';
     return 3;
@@ -315,6 +334,8 @@ int main(int argc, char *argv[]) {
 
     if (last_step || (ti % vis_steps) == 0) {
       cout << "step " << ti << ", t = " << t << endl;
+      if (cvode) { cvode->PrintInfo(); }
+      if (arkode) { arkode->PrintInfo(); }
 
       u_gf.SetFromTrueDofs(u);
       if (visualization) {
@@ -371,7 +392,7 @@ ConductionOperator::ConductionOperator(OccaFiniteElementSpace &ofespace_,
 
   M_solver.iterative_mode = false;
   M_solver.SetRelTol(rel_tol);
-  M_solver.SetAbsTol(0.0);
+  M_solver.SetAbsTol(1e-10);
   M_solver.SetMaxIter(4000);
   M_solver.SetPrintLevel(0);
   // M_solver.SetPreconditioner(M_prec);
@@ -379,7 +400,7 @@ ConductionOperator::ConductionOperator(OccaFiniteElementSpace &ofespace_,
 
   T_solver.iterative_mode = false;
   T_solver.SetRelTol(rel_tol);
-  T_solver.SetAbsTol(0.0);
+  T_solver.SetAbsTol(1e-10);
   T_solver.SetMaxIter(4000);
   T_solver.SetPrintLevel(0);
   // T_solver.SetPreconditioner(T_prec);

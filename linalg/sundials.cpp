@@ -46,8 +46,6 @@ using namespace std;
 namespace mfem
 {
 
-N_Vector_ID NVID = SUNDIALS_NVEC_SERIAL;
-
 #ifdef MFEM_USE_SUNDIALS_CUDA
 typedef nvec::Vector<double, long int> N_VectorCuda;
 #endif
@@ -132,18 +130,21 @@ const double SundialsSolver::default_abs_tol = 1e-9;
 int SundialsSolver::ODEMult(realtype t, const N_Vector y,
                             N_Vector ydot, void *td_oper)
 {
+#ifdef MFEM_USE_OCCA
+   const OccaVector mfem_y(y);
+   OccaVector mfem_ydot(ydot);
+#else
    const Vector mfem_y(y);
    Vector mfem_ydot(ydot);
+#endif
 
    // Compute y' = f(t, y).
    TimeDependentOperator *f = static_cast<TimeDependentOperator *>(td_oper);
    f->SetTime(t);
    f->Mult(mfem_y, mfem_ydot);
 
-#ifdef MFEM_USE_SUNDIALS_CUDA
-   // This could be avoided with a sequence
+#if !defined(MFEM_USE_OCCA) && defined(MFEM_USE_SUNDIALS_CUDA)
    // Copy back to the device for SUNDIALS to see the new ydot
-   // TODO This perhaps should not be needed to make this work
    N_Vector_ID nvid = N_VGetVectorID(ydot);
    if (nvid == SUNDIALS_NVEC_CUDA)
    {
@@ -151,6 +152,7 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
       content->copyToDev();
    }
 #endif
+
    return 0;
 }
 
@@ -159,28 +161,38 @@ static inline CVodeMem Mem(const CVODESolver *self)
    return CVodeMem(self->SundialsMem());
 }
 
-static N_Vector NVMakeBare()
+N_Vector NVMakeBare()
 {
+   N_Vector nv;
+
+#if defined(MFEM_USE_OCCA)
+   const std::string mode = occa::getDevice().mode();
+#elif defined(MFEM_SUNDIALS_CUDA)
+   const std::string mode = "CUDA";
+#else
+   const std::string mode = "Serial";
+#endif
+
+   if ((mode == "Serial") || (mode == "OpenMP"))
+   {
+      nv = N_VNewEmpty_Serial(0);
+   }
 #ifdef MFEM_USE_SUNDIALS_CUDA
-   if (NVID == SUNDIALS_NVEC_SERIAL)
+   else if (mode == "CUDA")
    {
-      return N_VNewEmpty_Serial(0);
+      nv = N_VNewEmpty_Cuda(0);
    }
-   else if (NVID == SUNDIALS_NVEC_CUDA)
-   {
-      return N_VNewEmpty_Cuda(0);
-   }
+#endif
    else
    {
      mfem_error("Type not supported in MVMakeBare()");
    }
-#else
-   return N_VNewEmpty_Serial(0);
-#endif
+
+   return nv;
 }
 
 #ifdef MFEM_USE_MPI
-static N_Vector NVMakeBare(MPI_Comm comm)
+N_Vector NVMakeBare(MPI_Comm comm)
 {
    if (comm != MPI_COMM_NULL)
    {
@@ -193,9 +205,10 @@ static N_Vector NVMakeBare(MPI_Comm comm)
 }
 #endif
 
-static void NVResize(N_Vector &nv, long int length)
+void NVResize(N_Vector &nv, long int length)
 {
    N_Vector_ID nvid = N_VGetVectorID(nv);
+
    if (nvid == SUNDIALS_NVEC_SERIAL)
    {
          N_VDestroy(nv);
@@ -225,9 +238,10 @@ static void NVResize(N_Vector &nv, long int length)
    }
 }
 
-static void NVDestroyData(N_Vector &nv)
+void NVDestroyData(N_Vector &nv)
 {
    N_Vector_ID nvid = N_VGetVectorID(nv);
+
    if (nvid == SUNDIALS_NVEC_SERIAL)
    {
       N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
@@ -247,10 +261,7 @@ static void NVDestroyData(N_Vector &nv)
    }
 #endif
 #ifdef MFEM_USE_SUNDIALS_CUDA
-   else if (nvid == SUNDIALS_NVEC_CUDA)
-   {
-      // Do nothing here, SetData calls will copy back and forth
-   }
+   else if (nvid == SUNDIALS_NVEC_CUDA) {}
 #endif
    else
    {
@@ -258,7 +269,7 @@ static void NVDestroyData(N_Vector &nv)
    }
 }
 
-static void NVSetData(const N_Vector &nv, realtype *data)
+void NVSetData(const N_Vector &nv, Vector &v)
 {
    N_Vector_ID nvid = N_VGetVectorID(nv);
 
@@ -266,7 +277,7 @@ static void NVSetData(const N_Vector &nv, realtype *data)
    {
      N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
      if (content->own_data) mfem_error("Need to NVDestroy() data first!");
-     content->data = data;
+     content->data = v.GetData();
      content->own_data = false;
    }
 #ifdef MFEM_USE_MPI
@@ -274,7 +285,7 @@ static void NVSetData(const N_Vector &nv, realtype *data)
    {
       N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
       if (content->own_data) mfem_error("Need to NVDestroy() data first!");
-      content->data = data;
+      content->data = v.GetData();
       content->own_data = false;
    }
 #endif
@@ -282,7 +293,7 @@ static void NVSetData(const N_Vector &nv, realtype *data)
    else if (nvid == SUNDIALS_NVEC_CUDA)
    {
       N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-      content->setFromHost(data);
+      content->setFromHost(v.GetData());
    }
 #endif
    else
@@ -291,7 +302,46 @@ static void NVSetData(const N_Vector &nv, realtype *data)
    }
 }
 
-static long int NVGetLength(const N_Vector &nv)
+#ifdef MFEM_USE_OCCA
+void NVSetData(const N_Vector &nv, OccaVector &v)
+{
+   N_Vector_ID nvid = N_VGetVectorID(nv);
+   const std::string mode = v.GetDevice().mode();
+
+   if (nvid == SUNDIALS_NVEC_SERIAL)
+   {
+     if (mode == "CUDA") mfem_error("OccaVector type not supported");
+     N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
+     if (content->own_data) mfem_error("Need to NVDestroy() data first!");
+     content->data = (realtype *) v.GetData().ptr();
+     content->own_data = false;
+   }
+#ifdef MFEM_USE_MPI
+   else if (nvid == SUNDIALS_NVEC_PARALLEL)
+   {
+      N_VectorContent_Parallel content = static_cast<N_VectorContent_Parallel>(nv->content);
+      if (content->own_data) mfem_error("Need to NVDestroy() data first!");
+      content->data = (realtype *) v.GetData().ptr();
+      content->own_data = false;
+   }
+#endif
+#ifdef MFEM_USE_SUNDIALS_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
+   {
+      if ((mode == "Serial") || (mode == "OpenMP"))
+         mfem_error("OccaVector type not supported");
+      N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+      content->setFromDev(static_cast<double *>(v.GetData().ptr()));
+   }
+#endif
+   else
+   {
+      mfem_error("Type not supported in NVSetData()");
+   }
+}
+#endif
+
+long int NVGetLength(const N_Vector &nv)
 {
    N_Vector_ID nvid = N_VGetVectorID(nv);
    long int length = 0;
@@ -464,31 +514,15 @@ void CVODESolver::Init(TimeDependentOperator &f_)
 
 void CVODESolver::Step(Vector &x, double &t, double &dt)
 {
-   CVodeMem mem = Mem(this);
-
-   NVSetData(y, x.GetData());
-   MFEM_VERIFY(NVGetLength(y) == x.Size(), "");
-
-   if (mem->cv_nst == 0)
-   {
-      // Set default linear solver, if not already set.
-      if (mem->cv_iter == CV_NEWTON && mem->cv_lsolve == NULL)
-      {
-         flag = CVSpgmr(sundials_mem, PREC_NONE, 0);
-      }
-      // Set the actual t0 and y0.
-      mem->cv_tn = t;
-      N_VScale(ONE, y, mem->cv_zn[0]);
-   }
-
-   double tout = t + dt;
-   // The actual time integration.
-   flag = CVode(sundials_mem, tout, y, &t, mem->cv_taskc);
-   MFEM_ASSERT(flag >= 0, "CVode() failed!");
-
-   // Return the last incremental step size.
-   dt = mem->cv_hu;
+  TStep(x, t, dt);
 }
+
+#ifdef MFEM_USE_OCCA
+void CVODESolver::Step(OccaVector &x, double &t, double &dt)
+{
+  TStep(x, t, dt);
+}
+#endif
 
 void CVODESolver::PrintInfo() const
 {
@@ -695,33 +729,15 @@ void ARKODESolver::Init(TimeDependentOperator &f_)
 
 void ARKODESolver::Step(Vector &x, double &t, double &dt)
 {
-   ARKodeMem mem = Mem(this);
-
-   NVSetData(y, x.GetData());
-   MFEM_VERIFY(NVGetLength(y) == x.Size(), "");
-
-   if (mem->ark_nst == 0)
-   {
-      // Set default linear solver, if not already set.
-      if (mem->ark_implicit && mem->ark_linit == NULL)
-      {
-         flag = ARKSpgmr(sundials_mem, PREC_NONE, 0);
-      }
-      // Set the actual t0 and y0.
-      mem->ark_tn = t;
-      mem->ark_tnew = t;
-
-      N_VScale(ONE, y, mem->ark_ycur);
-   }
-
-   double tout = t + dt;
-   // The actual time integration.
-   flag = ARKode(sundials_mem, tout, y, &t, mem->ark_taskc);
-   MFEM_ASSERT(flag >= 0, "ARKode() failed!");
-
-   // Return the last incremental step size.
-   dt = mem->ark_h;
+  TStep(x, t, dt);
 }
+
+#ifdef MFEM_USE_OCCA
+void ARKODESolver::Step(OccaVector &x, double &t, double &dt)
+{
+  TStep(x, t, dt);
+}
+#endif
 
 void ARKODESolver::PrintInfo() const
 {
@@ -754,8 +770,13 @@ static inline KINMem Mem(const KinSolver *self)
 // static method
 int KinSolver::Mult(const N_Vector u, N_Vector fu, void *user_data)
 {
+#ifdef MFEM_USE_OCCA
+   const OccaVector mfem_u(u);
+   OccaVector mfem_fu(fu);
+#else
    const Vector mfem_u(u);
    Vector mfem_fu(fu);
+#endif
 
    // Computes the non-linear action F(u).
    static_cast<KinSolver*>(user_data)->oper->Mult(mfem_u, mfem_fu);
@@ -766,8 +787,14 @@ int KinSolver::Mult(const N_Vector u, N_Vector fu, void *user_data)
 int KinSolver::GradientMult(N_Vector v, N_Vector Jv, N_Vector u,
                             booleantype *new_u, void *user_data)
 {
+#ifdef MFEM_USE_OCCA
+   const OccaVector mfem_v(v);
+   OccaVector mfem_Jv(Jv);
+#else
    const Vector mfem_v(v);
    Vector mfem_Jv(Jv);
+#endif
+
    KinSolver *self = static_cast<KinSolver*>(user_data);
    if (*new_u)
    {
@@ -796,7 +823,11 @@ int KinSolver::LinSysSetup(KINMemRec *kin_mem)
 int KinSolver::LinSysSolve(KINMemRec *kin_mem, N_Vector x, N_Vector b,
                            realtype *sJpnorm, realtype *sFdotJp)
 {
+#ifdef MFEM_USE_OCCA
+   OccaVector mx(x), mb(b);
+#else
    Vector mx(x), mb(b);
+#endif
    KinSolver *self = static_cast<KinSolver*>(kin_mem->kin_lmem);
 
    // Solve for mx = [J(u)]^{-1} mb, maybe approximately.
@@ -962,81 +993,29 @@ void KinSolver::SetMaxSetupCalls(int max_calls)
 
 void KinSolver::Mult(const Vector &b, Vector &x) const
 {
-   // Uses c = 1, corresponding to x_scale.
-   c = 1.0;
-
-   if (!iterative_mode) { x = 0.0; }
-
-   // For relative tolerance, r = 1 / |residual(x)|, corresponding to fx_scale.
-   if (rel_tol > 0.0)
-   {
-      oper->Mult(x, r);
-
-      // Note that KINSOL uses infinity norms.
-      double norm;
-#ifdef MFEM_USE_MPI
-      if (Parallel())
-      {
-         double lnorm = r.Normlinf();
-         MPI_Allreduce(&lnorm, &norm, 1, MPI_DOUBLE, MPI_MAX, NV_COMM_P(y));
-      }
-      else
-#endif
-      {
-         norm = r.Normlinf();
-      }
-
-      if (abs_tol > rel_tol * norm)
-      {
-         r = 1.0;
-         Mem(this)->kin_fnormtol = abs_tol;
-      }
-      else
-      {
-         r =  1.0 / norm;
-         Mem(this)->kin_fnormtol = rel_tol;
-      }
-   }
-   else
-   {
-      Mem(this)->kin_fnormtol = abs_tol;
-      r = 1.0;
-   }
-
-   Mult(x, c, r);
+  TMult(b, x);
 }
+
+#ifdef MFEM_USE_OCCA
+void KinSolver::Mult(const OccaVector &b, OccaVector &x) const
+{
+  TMult(b, x);
+}
+#endif
 
 void KinSolver::Mult(Vector &x,
                      const Vector &x_scale, const Vector &fx_scale) const
 {
-   KINMem mem = Mem(this);
-
-   flag = KINSetPrintLevel(sundials_mem, print_level);
-   MFEM_ASSERT(flag >= 0, "KINSetPrintLevel() failed!");
-
-   flag = KINSetNumMaxIters(sundials_mem, max_iter);
-   MFEM_ASSERT(flag >= 0, "KINSetNumMaxIters() failed!");
-
-   flag = KINSetScaledStepTol(sundials_mem, mem->kin_scsteptol);
-   MFEM_ASSERT(flag >= 0, "KINSetScaledStepTol() failed!");
-
-   flag = KINSetFuncNormTol(sundials_mem, mem->kin_fnormtol);
-   MFEM_ASSERT(flag >= 0, "KINSetFuncNormTol() failed!");
-
-   NVSetData(y, x.GetData());
-   NVSetData(y_scale, x_scale.GetData());
-   NVSetData(f_scale, fx_scale.GetData());
-
-   MFEM_VERIFY(NVGetLength(y) == x.Size(), "");
-
-   if (!iterative_mode) { x = 0.0; }
-
-   flag = KINSol(sundials_mem, y, mem->kin_globalstrategy, y_scale, f_scale);
-
-   converged  = (flag >= 0);
-   final_iter = mem->kin_nni;
-   final_norm = mem->kin_fnorm;
+  TMult(x, x_scale, fx_scale);
 }
+
+#ifdef MFEM_USE_OCCA
+void KinSolver::Mult(OccaVector &x,
+                     const OccaVector &x_scale, const OccaVector &fx_scale) const
+{
+  TMult(x, x_scale, fx_scale);
+}
+#endif
 
 KinSolver::~KinSolver()
 {

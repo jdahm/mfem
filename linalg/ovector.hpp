@@ -23,6 +23,10 @@
 #include "occa/array/linalg.hpp"
 #include "occa/tools/sys.hpp"
 
+#ifdef MFEM_USE_SUNDIALS
+#include <nvector/nvector_serial.h>
+#endif
+
 namespace mfem
 {
   class OccaVectorRef;
@@ -55,6 +59,11 @@ namespace mfem
 
     /// Creates vector based on Vector using the passed OCCA device
     OccaVector(occa::device device, const Vector &v);
+
+#ifdef MFEM_USE_SUNDIALS
+    /// Creates vector based on an N_Vector
+    OccaVector(const N_Vector &nv);
+#endif
 
     /// Convert to Vector
     operator Vector() const;
