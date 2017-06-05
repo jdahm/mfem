@@ -19,7 +19,7 @@
 #include <nvector/nvector_parallel.h>
 #include <nvector/nvector_parhyp.h>
 #endif
-#ifdef MFEM_USE_SUNDIALS_CUDA
+#ifdef MFEM_USE_CUDA_SUNDIALS
 #include <occa/modes/cuda.hpp>
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
@@ -69,8 +69,8 @@ namespace mfem {
 
 #ifdef MFEM_USE_SUNDIALS
 
-#ifdef MFEM_USE_SUNDIALS_CUDA
-  typedef nvec::Vector<double, long int> N_VectorCuda;
+#ifdef MFEM_USE_CUDA_SUNDIALS
+  typedef nvec::Vector<double, long int> SundialsCudaVector;
 #endif
 
   /// Creates vector based on an N_Vector
@@ -86,13 +86,13 @@ namespace mfem {
     {
       mfem_error("TBD");
     }
-#ifdef MFEM_USE_SUNDIALS_CUDA
+#ifdef MFEM_USE_CUDA_SUNDIALS
     else if (nvid == SUNDIALS_NVEC_CUDA)
     {
-      N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-      data = occa::cuda::wrapMemory(occa::getDevice(), content->device(),
-                                                content->size() * sizeof(double));
-      size = content->size();
+      SundialsCudaVector *vec = extractCudaVector(nv);
+      data = occa::cuda::wrapMemory(occa::getDevice(), vec->device(),
+                                    vec->size() * sizeof(double));
+      size = vec->size();
     }
 #endif
     else

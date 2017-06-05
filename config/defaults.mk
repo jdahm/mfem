@@ -70,7 +70,7 @@ MFEM_USE_OPENMP      = NO
 MFEM_USE_MEMALLOC    = YES
 MFEM_TIMER_TYPE      = $(if $(NOTMAC),2,4)
 MFEM_USE_SUNDIALS    = NO
-MFEM_USE_SUNDIALS_CUDA = NO
+MFEM_USE_CUDA_SUNDIALS = NO
 MFEM_USE_MESQUITE    = NO
 MFEM_USE_SUITESPARSE = NO
 MFEM_USE_SUPERLU     = NO
@@ -131,7 +131,7 @@ SUNDIALS_LIB = -Wl,-rpath,$(SUNDIALS_DIR)/lib -L$(SUNDIALS_DIR)/lib\
 ifeq ($(MFEM_USE_MPI),YES)
    SUNDIALS_LIB += -lsundials_nvecparhyp -lsundials_nvecparallel
 endif
-ifeq ($(MFEM_USE_SUNDIALS_CUDA),YES)
+ifeq ($(MFEM_USE_CUDA_SUNDIALS),YES)
    ifndef CUDA_DIR
       CUDA_DIR = /usr/local/cuda
    endif

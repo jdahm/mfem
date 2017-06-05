@@ -69,7 +69,7 @@
 // #define MFEM_USE_SUNDIALS
 
 // Enable MFEM functionality based on the SUNDIALS libraries.
-// #define MFEM_USE_SUNDIALS_CUDA
+// #define MFEM_USE_CUDA_SUNDIALS
 
 // Enable MFEM functionality based on the Mesquite library.
 // #define MFEM_USE_MESQUITE
