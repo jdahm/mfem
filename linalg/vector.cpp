@@ -17,7 +17,7 @@
 #include <nvector/nvector_parallel.h>
 #include <nvector/nvector_parhyp.h>
 #endif
-#ifdef MFEM_USE_CUDA_SUNDIALS
+#ifdef MFEM_USE_SUNDIALS_CUDA
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
 #endif
@@ -777,8 +777,8 @@ double Vector::DistanceTo(const double *p) const
 
 #ifdef MFEM_USE_SUNDIALS
 
-#ifdef MFEM_USE_CUDA_SUNDIALS
-typedef nvec::Vector<double, long int> SundialsCudaVector;
+#ifdef MFEM_USE_SUNDIALS_CUDA
+typedef nvec::Vector<double, long int> N_VectorCuda;
 #endif
 
 Vector::Vector(N_Vector nv)
@@ -800,12 +800,12 @@ Vector::Vector(N_Vector nv)
          break;
       }
 #endif
-#ifdef MFEM_USE_CUDA_SUNDIALS
+#ifdef MFEM_USE_SUNDIALS_CUDA
       case SUNDIALS_NVEC_CUDA:
       {
-         SundialsCudaVector *vec = extractCudaVector(nv);
-         vec->copyFromDev();
-         SetDataAndSize(vec->host(), vec->size());
+         N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+         content->copyFromDev();
+         SetDataAndSize(content->host(), content->size());
          break;
       }
 #endif
@@ -840,11 +840,13 @@ void Vector::ToNVector(N_Vector &nv)
          break;
       }
 #endif
-#ifdef MFEM_USE_CUDA_SUNDIALS
+#ifdef MFEM_USE_SUNDIALS_CUDA
       case SUNDIALS_NVEC_CUDA:
       {
          N_VDestroy(nv);
-         nv = N_VMake_Cuda(new SundialsCudaVector(size, data));
+         nv = N_VNew_Cuda(size);
+         N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
+         content->setFromHost(data);
          break;
       }
 #endif
