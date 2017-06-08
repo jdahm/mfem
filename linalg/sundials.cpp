@@ -138,6 +138,11 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
    Vector mfem_ydot(ydot);
 #endif
 
+   std::cout << "--------- y ------------\n";
+   mfem_y.Print();
+   std::cout << "------------\n";
+   N_VPrint_Cuda(y);
+
    // Compute y' = f(t, y).
    TimeDependentOperator *f = static_cast<TimeDependentOperator *>(td_oper);
    f->SetTime(t);
@@ -152,7 +157,11 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
       content->copyToDev();
    }
 #endif
-
+   std::cout << "--------- ydot ------------\n";
+   mfem_ydot.Print();
+   std::cout << "------------\n";
+   N_VPrint_Cuda(ydot);
+   mfem_error("Stopping here....");
    return 0;
 }
 
@@ -331,7 +340,7 @@ void NVSetData(const N_Vector &nv, OccaVector &v)
       if ((mode == "Serial") || (mode == "OpenMP"))
          mfem_error("OccaVector type not supported");
       N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-      content->setFromDev(static_cast<double *>(v.GetData().ptr()));
+      content->setFromDevice(static_cast<double *>(v.GetData().ptr()));
    }
 #endif
    else
