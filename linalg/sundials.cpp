@@ -20,6 +20,7 @@
 
 #include <nvector/nvector_serial.h>
 #ifdef MFEM_USE_SUNDIALS_CUDA
+#include <occa/modes/cuda.hpp>
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
 #endif
@@ -138,11 +139,6 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
    Vector mfem_ydot(ydot);
 #endif
 
-   std::cout << "--------- y ------------\n";
-   mfem_y.Print();
-   std::cout << "------------\n";
-   N_VPrint_Cuda(y);
-
    // Compute y' = f(t, y).
    TimeDependentOperator *f = static_cast<TimeDependentOperator *>(td_oper);
    f->SetTime(t);
@@ -157,11 +153,7 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
       content->copyToDev();
    }
 #endif
-   std::cout << "--------- ydot ------------\n";
-   mfem_ydot.Print();
-   std::cout << "------------\n";
-   N_VPrint_Cuda(ydot);
-   mfem_error("Stopping here....");
+
    return 0;
 }
 
@@ -339,8 +331,7 @@ void NVSetData(const N_Vector &nv, OccaVector &v)
    {
       if ((mode == "Serial") || (mode == "OpenMP"))
          mfem_error("OccaVector type not supported");
-      N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-      content->setFromDevice(static_cast<double *>(v.GetData().ptr()));
+      nvec::extract(nv)->setFromDevice(static_cast<double *>(v.GetData().ptr()));
    }
 #endif
    else
@@ -383,6 +374,11 @@ long int NVGetLength(const N_Vector &nv)
 
 CVODESolver::CVODESolver(int lmm, int iter)
 {
+#if defined(MFEM_USE_OCCA) && defined(MFEM_USE_CUDA_SUNDIALS)
+   // pass the context to sundials
+   nvec::setCudaContext(occa::cuda::getContext(occa::getDevice()));
+#endif
+
    // Allocate an empty serial N_Vector wrapper in y.
    y = NVMakeBare();
    MFEM_ASSERT(y, "error in NVMakeBare()");
