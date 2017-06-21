@@ -173,6 +173,9 @@ namespace mfem
     /// (*this) = -(*this)
     void Neg();
 
+    /// (*this) = |(*this)|
+    void Abs();
+
     /// Swap the contents of two Vectors
     inline void Swap(OccaVector &other) {
       mfem::Swap(size, other.size);

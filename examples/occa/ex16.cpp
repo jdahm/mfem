@@ -343,7 +343,7 @@ int main(int argc, char *argv[]) {
         sout << "solution\n" << *mesh << u_f << flush;
       }
     }
-    // Set the
+    // Set the parameters for the next timestep
     oper.SetParameters(u);
   }
 

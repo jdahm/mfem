@@ -19,10 +19,16 @@
 #include <nvector/nvector_parallel.h>
 #include <nvector/nvector_parhyp.h>
 #endif
-#ifdef MFEM_USE_SUNDIALS_CUDA
-#include <occa/modes/cuda.hpp>
+#if defined(MFEM_USE_CUDA_VECTOR) || defined (MFEM_USE_OCCA_VECTOR)
 #include <nvector/nvector_cuda.h>
+#endif
+#ifdef MFEM_USE_CUDA_NVECTOR
+#include <occa/modes/cuda.hpp>
 #include <nvector/cuda/Vector.hpp>
+typedef nvec::Vector<double, long int> SundialsCudaVector;
+#endif
+#ifdef MFEM_USE_OCCA_NVECTOR
+#include "sundials.hpp"
 #endif
 
 namespace mfem {
@@ -69,37 +75,33 @@ namespace mfem {
 
 #ifdef MFEM_USE_SUNDIALS
 
-#ifdef MFEM_USE_SUNDIALS_CUDA
-  typedef nvec::Vector<double, long int> N_VectorCuda;
-#endif
-
   /// Creates vector based on an N_Vector
   OccaVector::OccaVector(const N_Vector &nv) {
     N_Vector_ID nvid = N_VGetVectorID(nv);
 
     if (nvid == SUNDIALS_NVEC_SERIAL)
     {
-      N_VectorContent_Serial content = static_cast<N_VectorContent_Serial>(nv->content);
+      N_VectorContent_Serial content = (N_VectorContent_Serial) nv->content;
       SetSize(occa::getDevice(), content->length, content->data);
     }
     else if (nvid == SUNDIALS_NVEC_PARALLEL)
     {
       mfem_error("TBD");
     }
-#ifdef MFEM_USE_SUNDIALS_CUDA
-    else if (nvid == SUNDIALS_NVEC_CUDA)
-    {
-      N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-      data = occa::cuda::wrapMemory(occa::getDevice(), content->device(),
-                                                content->size() * sizeof(double));
-      size = content->size();
-    }
-#endif
     else
     {
-      mfem_error("Type not supported in OccaVector constructor");
+#if defined(MFEM_USE_CUDA_NVECTOR)
+       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
+       data = occa::cuda::wrapMemory(occa::getDevice(), content->device(),
+                                     content->size() * sizeof(double));
+       size = content->size();
+#elif defined(MFEM_USE_OCCA_NVECTOR)
+       NVOCCAContent *content = (NVOCCAContent *) nv->content;
+       SetDataAndSize(content->vec->GetData(), content->vec->Size());
+#else
+       mfem_error("Type not supported in OccaVector constructor");
+#endif
     }
-
   }
 #endif
 
@@ -292,6 +294,16 @@ namespace mfem {
     static occa::kernelBuilder builder =
       makeCustomBuilder("vector_neg",
                         "v0[i] *= -1.0;");
+
+    occa::kernel kernel = builder.build(data.getDevice());
+    kernel((int) Size(), data);
+  }
+
+  /// (*this) = |(*this)|
+  void OccaVector::Abs() {
+    static occa::kernelBuilder builder =
+      makeCustomBuilder("vector_abs",
+                        "v0[i] = (v0[i] < 0) ? -v0[i] : v0[i];");
 
     occa::kernel kernel = builder.build(data.getDevice());
     kernel((int) Size(), data);

@@ -17,9 +17,15 @@
 #include <nvector/nvector_parallel.h>
 #include <nvector/nvector_parhyp.h>
 #endif
-#ifdef MFEM_USE_SUNDIALS_CUDA
+
+#ifdef MFEM_USE_CUDA_NVECTOR
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
+typedef nvec::Vector<double, long int> N_VectorCuda;
+#endif
+
+#ifdef MFEM_USE_OCCA_NVECTOR
+#include "sundials.hpp"
 #endif
 
 #ifdef MFEM_USE_OCCA
@@ -777,40 +783,39 @@ double Vector::DistanceTo(const double *p) const
 
 #ifdef MFEM_USE_SUNDIALS
 
-#ifdef MFEM_USE_SUNDIALS_CUDA
-typedef nvec::Vector<double, long int> N_VectorCuda;
-#endif
-
 Vector::Vector(N_Vector nv)
 {
    N_Vector_ID nvid = N_VGetVectorID(nv);
-   switch (nvid)
+
+   if (nvid == SUNDIALS_NVEC_SERIAL)
    {
-      case SUNDIALS_NVEC_SERIAL:
-         SetDataAndSize(NV_DATA_S(nv), NV_LENGTH_S(nv));
-         break;
-#ifdef MFEM_USE_MPI
-      case SUNDIALS_NVEC_PARALLEL:
-         SetDataAndSize(NV_DATA_P(nv), NV_LOCLENGTH_P(nv));
-         break;
-      case SUNDIALS_NVEC_PARHYP:
-      {
-         hypre_Vector *hpv_local = N_VGetVector_ParHyp(nv)->local_vector;
-         SetDataAndSize(hpv_local->data, hpv_local->size);
-         break;
-      }
+      SetDataAndSize(NV_DATA_S(nv), NV_LENGTH_S(nv));
+   }
+#ifdef MFEM_USE_PARALLEL
+   else if (nvid == SUNDIALS_NVEC_PARALLEL)
+   {
+      SetDataAndSize(NV_DATA_P(nv), NV_LOCLENGTH_P(nv));
+   }
+   else if (nvid == SUNDIALS_NVEC_PARHYP)
+   {
+      hypre_Vector *hpv_local = N_VGetVector_ParHyp(nv)->local_vector;
+      SetDataAndSize(hpv_local->data, hpv_local->size);
+   }
 #endif
-#ifdef MFEM_USE_SUNDIALS_CUDA
-      case SUNDIALS_NVEC_CUDA:
-      {
-         N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-         content->copyFromDev();
-         SetDataAndSize(content->host(), content->size());
-         break;
-      }
+   else
+   {
+#if defined(MFEM_USE_CUDA_NVECTOR)
+      SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
+      content->copyFromDev();
+      SetDataAndSize(content->host(), content->size());
+#elif defined(MFEM_USE_OCCA_NVECTOR)
+      // This might work, but if ptr() is on the device this will have issues
+      // NVOCCAContent *content = (NVOCCAContent *) nv->content;
+      // SetDataAndSize(content->vec->GetData().ptr(), content->vec->Size());
+      mfem_error("TBD");
+#else
+      mfem_error("Error in Vector constructor.");
 #endif
-      default:
-         MFEM_ABORT("N_Vector type " << nvid << " is not supported");
    }
 }
 
@@ -818,40 +823,42 @@ void Vector::ToNVector(N_Vector &nv)
 {
    MFEM_ASSERT(nv, "N_Vector handle is NULL");
    N_Vector_ID nvid = N_VGetVectorID(nv);
-   switch (nvid)
+
+   if (nvid == SUNDIALS_NVEC_SERIAL)
    {
-      case SUNDIALS_NVEC_SERIAL:
-         MFEM_ASSERT(NV_OWN_DATA_S(nv) == FALSE, "invalid serial N_Vector");
-         NV_DATA_S(nv) = data;
-         NV_LENGTH_S(nv) = size;
-         break;
+      MFEM_ASSERT(NV_OWN_DATA_S(nv) == FALSE, "invalid serial N_Vector");
+      NV_DATA_S(nv) = data;
+      NV_LENGTH_S(nv) = size;
+   }
 #ifdef MFEM_USE_MPI
-      case SUNDIALS_NVEC_PARALLEL:
-         MFEM_ASSERT(NV_OWN_DATA_P(nv) == FALSE, "invalid parallel N_Vector");
-         NV_DATA_P(nv) = data;
-         NV_LOCLENGTH_P(nv) = size;
-         break;
-      case SUNDIALS_NVEC_PARHYP:
-      {
-         hypre_Vector *hpv_local = N_VGetVector_ParHyp(nv)->local_vector;
-         MFEM_ASSERT(hpv_local->owns_data == false, "invalid hypre N_Vector");
-         hpv_local->data = data;
-         hpv_local->size = size;
-         break;
-      }
+   else if (nvid == SUNDIALS_NVEC_PARALLEL)
+   {
+      MFEM_ASSERT(NV_OWN_DATA_P(nv) == FALSE, "invalid parallel N_Vector");
+      NV_DATA_P(nv) = data;
+      NV_LOCLENGTH_P(nv) = size;
+   }
+   else if (nvid == SUNDIALS_NVEC_PARHYP)
+   {
+      hypre_Vector *hpv_local = N_VGetVector_ParHyp(nv)->local_vector;
+      MFEM_ASSERT(hpv_local->owns_data == false, "invalid hypre N_Vector");
+      hpv_local->data = data;
+      hpv_local->size = size;
+   }
 #endif
-#ifdef MFEM_USE_SUNDIALS_CUDA
-      case SUNDIALS_NVEC_CUDA:
-      {
-         N_VDestroy(nv);
-         nv = N_VNew_Cuda(size);
-         N_VectorCuda *content = static_cast<N_VectorCuda *>(nv->content);
-         content->setFromHost(data);
-         break;
-      }
+   else
+   {
+#if defined(MFEM_USE_CUDA_NVECTOR)
+      N_VDestroy(nv);
+      nv = N_VNew_Cuda(size);
+      SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
+      content->setFromHost(data);
+#elif defined(MFEM_USE_OCCA_NVECTOR)
+      NVOCCAContent *content = (NVOCCAContent *) nv->content;
+      content->vec = new OccaVector(*this);
+      content->ownVector = true;
+#else
+      mfem_error("Error in constructor.");
 #endif
-      default:
-         MFEM_ABORT("N_Vector type " << nvid << " is not supported");
    }
 }
 

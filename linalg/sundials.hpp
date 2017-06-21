@@ -45,25 +45,32 @@ struct KINMemRec;
 namespace mfem
 {
 
-   // N_Vector helper functions
-   // TODO These should be able to remain static
-   N_Vector NVMakeBare();
-
+/// OCCA NVector content
+struct NVOCCAContent {
+   OccaVector *vec;
+   bool ownVector;
 #ifdef MFEM_USE_MPI
-   N_Vector NVMakeBare(MPI_Comm comm);
+   MPI_Comm comm;
 #endif
+};
 
-   void NVResize(N_Vector &nv, long int length);
+namespace nv
+{
 
-   void NVDestroyData(N_Vector &nv);
+/* N_Vector methods to avoid further specialization */
+// TODO Remove dependence on these here
 
-   void NVSetData(const N_Vector &nv, Vector &v);
+/// Disassociate the existing data and set to v
+void SetVector(const N_Vector &nv, Vector &v);
 
 #ifdef MFEM_USE_OCCA
-   void NVSetData(const N_Vector &nv, OccaVector &v);
+void SetVector(const N_Vector &nv, OccaVector &v);
 #endif
 
-   long int NVGetLength(const N_Vector &nv);
+///  Return the vector local length
+long int GetLength(const N_Vector &nv);
+
+} // namespace nv
 
 
 /** @brief Abstract base class, wrapping the custom linear solvers interface in
@@ -126,8 +133,8 @@ protected:
 
    N_Vector y;  ///< Auxiliary N_Vector.
 #ifdef MFEM_USE_MPI
-   bool Parallel() const
-   { return (y->ops->nvgetvectorid != N_VGetVectorID_Serial); }
+   MPI_Comm sundials_comm;
+   bool Parallel() const { return (sundials_comm != MPI_COMM_NULL); }
 #else
    bool Parallel() const { return false; }
 #endif
@@ -144,7 +151,13 @@ protected:
    ///@{
    SundialsSolver() : sundials_mem(NULL) { }
    SundialsSolver(void *mem) : sundials_mem(mem) { }
+#ifdef MFEM_USE_MPI
+   SundialsSolver(MPI_Comm comm_) : sundials_comm(comm_) { }
+#endif
    ///@}
+
+   /// Create an N_Vector;
+   N_Vector CreateVector(long int length) const;
 
 public:
    /// Access the underlying SUNDIALS object.
@@ -250,13 +263,14 @@ public:
 template <class TVector>
 void CVODESolver::TStep(TVector &x, double &t, double &dt)
 {
-   CVodeMem mem = static_cast<CVodeMem>(SundialsMem());
+   CVodeMem mem = (CVodeMem) SundialsMem();
 
-   NVSetData(y, x);
-   MFEM_VERIFY(NVGetLength(y) == static_cast<long int>(x.Size()), "");
+   MFEM_VERIFY(nv::GetLength(y) == static_cast<long int>(x.Size()), "");
+   nv::SetVector(y, x);
 
    if (mem->cv_nst == 0)
    {
+      // TOCONSIDER: Looks similar to sundials reinitialization.
       // Set default linear solver, if not already set.
       if (mem->cv_iter == CV_NEWTON && mem->cv_lsolve == NULL)
       {
@@ -378,10 +392,10 @@ public:
 template <class TVector>
 void ARKODESolver::TStep(TVector &x, double &t, double &dt)
 {
-   ARKodeMem mem = static_cast<ARKodeMem>(SundialsMem());
+   ARKodeMem mem = (ARKodeMem) SundialsMem();
 
-   NVSetData(y, x);
-   MFEM_VERIFY(NVGetLength(y) == static_cast<long int>(x.Size()), "");
+   MFEM_VERIFY(nv::GetLength(y) == static_cast<long int>(x.Size()), "");
+   nv::SetVector(y, x);
 
    if (mem->ark_nst == 0)
    {
@@ -527,7 +541,7 @@ public:
 template <class TVector>
 void KinSolver::TMult(const TVector &b, TVector &x) const
 {
-   KINMem mem = static_cast<KINMem>(SundialsMem());
+   KINMem mem = (KINMem) SundialsMem();
 
    // Uses c = 1, corresponding to x_scale.
    c = 1.0;
@@ -574,7 +588,7 @@ void KinSolver::TMult(const TVector &b, TVector &x) const
 template <class TVector>
 void KinSolver::TMult(TVector &x, const TVector &x_scale, const TVector &fx_scale) const
 {
-   KINMem mem = static_cast<KINMem>(SundialsMem());
+   KINMem mem = (KINMem) SundialsMem();
 
    flag = KINSetPrintLevel(sundials_mem, print_level);
    MFEM_ASSERT(flag >= 0, "KINSetPrintLevel() failed!");
@@ -588,11 +602,10 @@ void KinSolver::TMult(TVector &x, const TVector &x_scale, const TVector &fx_scal
    flag = KINSetFuncNormTol(sundials_mem, mem->kin_fnormtol);
    MFEM_ASSERT(flag >= 0, "KINSetFuncNormTol() failed!");
 
-   NVSetData(y, x);
-   NVSetData(y_scale, const_cast<TVector &>(x_scale));
-   NVSetData(f_scale, const_cast<TVector &>(fx_scale));
-
-   MFEM_VERIFY(NVGetLength(y) == static_cast<long int>(x.Size()), "");
+   MFEM_VERIFY(nv::GetLength(y) == static_cast<long int>(x.Size()), "");
+   nv::SetVector(y, x);
+   nv::SetVector(y_scale, const_cast<TVector &>(x_scale));
+   nv::SetVector(f_scale, const_cast<TVector &>(fx_scale));
 
    if (!iterative_mode) { x = 0.0; }
 

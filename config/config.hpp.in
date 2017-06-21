@@ -68,8 +68,11 @@
 // Enable MFEM functionality based on the SUNDIALS libraries.
 // #define MFEM_USE_SUNDIALS
 
-// Enable MFEM functionality based on the SUNDIALS libraries.
-// #define MFEM_USE_SUNDIALS_CUDA
+// Enable OCCA NVector implementation.
+// #define MFEM_USE_OCCA_NVECTOR
+
+// Enable Use of the CUDA NVector implementation in SUNDIALS.
+// #define MFEM_USE_CUDA_NVECTOR
 
 // Enable MFEM functionality based on the Mesquite library.
 // #define MFEM_USE_MESQUITE
