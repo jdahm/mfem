@@ -568,7 +568,7 @@ void Destroy(N_Vector &nv)
 #elif defined(MFEM_USE_NVECTOR_OCCA)
       // delete the OccaVector
       NVOCCAContent *content = (NVOCCAContent *) nv->content;
-      delete content->vec;
+      if (content->ownVector) delete content->vec;
 #else
       mfem_error("Type not supported in nv::Destroy()");
 #endif
