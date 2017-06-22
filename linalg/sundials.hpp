@@ -45,6 +45,7 @@ struct KINMemRec;
 namespace mfem
 {
 
+#ifdef MFEM_USE_NVECTOR_OCCA
 /// OCCA NVector content
 struct NVOCCAContent {
    OccaVector *vec;
@@ -53,6 +54,7 @@ struct NVOCCAContent {
    MPI_Comm comm;
 #endif
 };
+#endif
 
 namespace nv
 {
