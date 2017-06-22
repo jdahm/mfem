@@ -18,13 +18,13 @@
 #include <nvector/nvector_parhyp.h>
 #endif
 
-#ifdef MFEM_USE_CUDA_NVECTOR
+#ifdef MFEM_USE_NVECTOR_CUDA
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
-typedef nvec::Vector<double, long int> N_VectorCuda;
+typedef nvec::Vector<double, long int> SundialsCudaVector;
 #endif
 
-#ifdef MFEM_USE_OCCA_NVECTOR
+#ifdef MFEM_USE_NVECTOR_OCCA
 #include "sundials.hpp"
 #endif
 
@@ -804,11 +804,11 @@ Vector::Vector(N_Vector nv)
 #endif
    else
    {
-#if defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       content->copyFromDev();
       SetDataAndSize(content->host(), content->size());
-#elif defined(MFEM_USE_OCCA_NVECTOR)
+#elif defined(MFEM_USE_NVECTOR_OCCA)
       // This might work, but if ptr() is on the device this will have issues
       // NVOCCAContent *content = (NVOCCAContent *) nv->content;
       // SetDataAndSize(content->vec->GetData().ptr(), content->vec->Size());
@@ -847,12 +847,12 @@ void Vector::ToNVector(N_Vector &nv)
 #endif
    else
    {
-#if defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA)
       N_VDestroy(nv);
       nv = N_VNew_Cuda(size);
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       content->setFromHost(data);
-#elif defined(MFEM_USE_OCCA_NVECTOR)
+#elif defined(MFEM_USE_NVECTOR_OCCA)
       NVOCCAContent *content = (NVOCCAContent *) nv->content;
       content->vec = new OccaVector(*this);
       content->ownVector = true;

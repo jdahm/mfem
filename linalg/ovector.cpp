@@ -22,12 +22,12 @@
 #if defined(MFEM_USE_CUDA_VECTOR) || defined (MFEM_USE_OCCA_VECTOR)
 #include <nvector/nvector_cuda.h>
 #endif
-#ifdef MFEM_USE_CUDA_NVECTOR
+#ifdef MFEM_USE_NVECTOR_CUDA
 #include <occa/modes/cuda.hpp>
 #include <nvector/cuda/Vector.hpp>
 typedef nvec::Vector<double, long int> SundialsCudaVector;
 #endif
-#ifdef MFEM_USE_OCCA_NVECTOR
+#ifdef MFEM_USE_NVECTOR_OCCA
 #include "sundials.hpp"
 #endif
 
@@ -90,12 +90,12 @@ namespace mfem {
     }
     else
     {
-#if defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA)
        SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
        data = occa::cuda::wrapMemory(occa::getDevice(), content->device(),
                                      content->size() * sizeof(double));
        size = content->size();
-#elif defined(MFEM_USE_OCCA_NVECTOR)
+#elif defined(MFEM_USE_NVECTOR_OCCA)
        NVOCCAContent *content = (NVOCCAContent *) nv->content;
        SetDataAndSize(content->vec->GetData(), content->vec->Size());
 #else
@@ -237,6 +237,32 @@ namespace mfem {
     occa::kernel kernel = builder.build(dev);
 
     kernel((int) Size(), value, data);
+
+    return *this;
+  }
+
+  OccaVector& OccaVector::operator /= (const OccaVector &v) {
+    static occa::kernelBuilder builder =
+      makeCustomBuilder("vector_vec_div",
+                        "v0[i] /= v1[i];");
+
+    occa::device dev = data.getDevice();
+    occa::kernel kernel = builder.build(dev);
+
+    kernel((int) Size(), data, v.data);
+
+    return *this;
+  }
+
+  OccaVector& OccaVector::operator *= (const OccaVector &v) {
+    static occa::kernelBuilder builder =
+      makeCustomBuilder("vector_vec_div",
+                        "v0[i] *= v1[i];");
+
+    occa::device dev = data.getDevice();
+    occa::kernel kernel = builder.build(dev);
+
+    kernel((int) Size(), data, v.data);
 
     return *this;
   }

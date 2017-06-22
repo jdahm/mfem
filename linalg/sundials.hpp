@@ -132,6 +132,10 @@ protected:
    mutable int flag;   ///< Flag returned by the last call to SUNDIALS.
 
    N_Vector y;  ///< Auxiliary N_Vector.
+
+   /// Temporary: Specifies the vector type passed to overloaded TimeDependentOperator::Step method
+   static int vectorType;
+
 #ifdef MFEM_USE_MPI
    MPI_Comm sundials_comm;
    bool Parallel() const { return (sundials_comm != MPI_COMM_NULL); }

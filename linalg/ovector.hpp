@@ -160,6 +160,10 @@ namespace mfem
 
     OccaVector& operator += (double value);
 
+    OccaVector& operator *= (const OccaVector &v);
+
+    OccaVector& operator /= (const OccaVector &v);
+
     OccaVector& operator -= (const OccaVector &v);
 
     OccaVector& operator += (const OccaVector &v);

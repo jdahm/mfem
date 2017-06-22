@@ -20,10 +20,10 @@
 
 #include <nvector/nvector_serial.h>
 
-#if defined(MFEM_USE_CUDA_NVECTOR) || defined(MFEM_USE_OCCA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA) || defined(MFEM_USE_NVECTOR_OCCA)
 #include <occa/modes/cuda.hpp>
 #endif
-#ifdef MFEM_USE_CUDA_NVECTOR
+#ifdef MFEM_USE_NVECTOR_CUDA
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
 #endif
@@ -32,21 +32,21 @@
 #include <nvector/nvector_parallel.h>
 #endif
 
-#include <cvode/cvode_impl.h>
-#include <cvode/cvode_spgmr.h>
+// #include <cvode/cvode_impl.h>
+// #include <cvode/cvode_spgmr.h>
 
-// This just hides a warning (to be removed after it's fixed in SUNDIALS).
-#ifdef MSG_TIME_INT
-#undef MSG_TIME_INT
-#endif
+// // This just hides a warning (to be removed after it's fixed in SUNDIALS).
+// #ifdef MSG_TIME_INT
+// #undef MSG_TIME_INT
+// #endif
 
-#include <arkode/arkode_impl.h>
-#include <arkode/arkode_spgmr.h>
+// #include <arkode/arkode_impl.h>
+// #include <arkode/arkode_spgmr.h>
 
-#include <kinsol/kinsol_impl.h>
-#include <kinsol/kinsol_spgmr.h>
+// #include <kinsol/kinsol_impl.h>
+// #include <kinsol/kinsol_spgmr.h>
 
-#ifdef MFEM_USE_CUDA_NVECTOR
+#ifdef MFEM_USE_NVECTOR_CUDA
 typedef nvec::Vector<double, long int> SundialsCudaVector;
 #endif
 
@@ -173,22 +173,23 @@ static void nvlinearsum(realtype a, N_Vector x, realtype b, N_Vector y, N_Vector
    OccaVector &vz = ExtractVector(z);
    if (z == y)
    {
-      vy += vx * a;
+      vy.Set(a, vx);
    }
    else if (z == x)
    {
-      vx += vy * b;
+      vx.Set(b, vy);
    }
    else
    {
-      vz = vx * a + vy * b;
+      vz.Set(a, vx);
+      vz.Add(b, vy);
    }
 }
 
 static void nvconst(realtype c, N_Vector z)
 {
-   OccaVector &vx = ExtractVector(z);
-   vx = c;
+   OccaVector &vz = ExtractVector(z);
+   vz *= c;
 }
 
 static void nvprod(N_Vector x, N_Vector y, N_Vector z)
@@ -196,12 +197,18 @@ static void nvprod(N_Vector x, N_Vector y, N_Vector z)
    OccaVector &vx = ExtractVector(x);
    OccaVector &vy = ExtractVector(y);
    OccaVector &vz = ExtractVector(z);
-   vz = vx * vy;
+   vz = vx;
+   vz *= vy;
 }
 
 static void nvdiv(N_Vector x, N_Vector y, N_Vector z)
 {
-   mfem_error("Not yet implemented");
+   OccaVector &vx = ExtractVector(x);
+   OccaVector &vy = ExtractVector(y);
+   OccaVector &vz = ExtractVector(z);
+
+   vz = vx;
+   vz /= vy;
 }
 
 static void nvscale(realtype c, N_Vector x, N_Vector z)
@@ -214,7 +221,7 @@ static void nvscale(realtype c, N_Vector x, N_Vector z)
    }
    else
    {
-      vz = vx * c;
+      vz.Set(c, vx);
    }
 }
 
@@ -458,6 +465,8 @@ static int arkLinSysFree(ARKodeMem ark_mem)
    return to_solver(ark_mem->ark_lmem)->FreeSystem(ark_mem);
 }
 
+// TODO: The vectorType hack can be removed when merging
+int SundialsSolver::vectorType;
 const double SundialsSolver::default_rel_tol = 1e-4;
 const double SundialsSolver::default_abs_tol = 1e-9;
 
@@ -465,28 +474,25 @@ const double SundialsSolver::default_abs_tol = 1e-9;
 int SundialsSolver::ODEMult(realtype t, const N_Vector y,
                             N_Vector ydot, void *td_oper)
 {
-#ifdef MFEM_USE_OCCA
-   const OccaVector mfem_y(y);
-   OccaVector mfem_ydot(ydot);
-#else
-   const Vector mfem_y(y);
-   Vector mfem_ydot(ydot);
-#endif
-
-   // Compute y' = f(t, y).
    TimeDependentOperator *f = static_cast<TimeDependentOperator *>(td_oper);
-   f->SetTime(t);
-   f->Mult(mfem_y, mfem_ydot);
 
-#if !defined(MFEM_USE_OCCA) && defined(MFEM_USE_SUNDIALS_CUDA)
-   // Copy back to the device for SUNDIALS to see the new ydot
-   N_Vector_ID nvid = N_VGetVectorID(ydot);
-   if (nvid == SUNDIALS_NVEC_CUDA)
+   if (vectorType == 1)
    {
-      N_VectorCuda *content = static_cast<N_VectorCuda *>(ydot->content);
-      content->copyToDev();
+      const Vector mfem_y(y);
+      Vector mfem_ydot(ydot);
+      // Compute y' = f(t, y).
+
+      f->SetTime(t);
+      f->Mult(mfem_y, mfem_ydot);
    }
-#endif
+   else
+   {
+      const OccaVector mfem_y(y);
+      OccaVector mfem_ydot(ydot);
+
+      f->SetTime(t);
+      f->Mult(mfem_y, mfem_ydot);
+   }
 
    return 0;
 }
@@ -512,21 +518,15 @@ N_Vector SundialsSolver::CreateVector(long int length) const
       nv = N_VNew_Serial(length);
 #endif
    }
-#ifdef MFEM_USE_CUDA_NVECTOR
-   else if (mode == "CUDA")
-   {
-      nv = N_VNew_Cuda(length);
-   }
-#endif
-#ifdef MFEM_USE_OCCA_NVECTOR
-   else if (mode == "CUDA")
-   {
-      nv = NewOccaNVector(length);
-   }
-#endif
    else
    {
-      mfem_error("Type not supported in MVMakeBare()");
+#if defined(MFEM_USE_NVECTOR_CUDA)
+      nv = N_VNew_Cuda(length);
+#elif defined(MFEM_USE_NVECTOR_OCCA)
+      nv = NewOccaNVector(length);
+#else
+      mfem_error("Type not supported in SundialsSolver::CreateVector()");
+#endif
    }
 
    return nv;
@@ -563,9 +563,9 @@ void Destroy(N_Vector &nv)
 #endif
    else
    {
-#if defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA)
       // do nothing
-#elif defined(MFEM_USE_OCCA_NVECTOR)
+#elif defined(MFEM_USE_NVECTOR_OCCA)
       // delete the OccaVector
       NVOCCAContent *content = (NVOCCAContent *) nv->content;
       delete content->vec;
@@ -597,10 +597,10 @@ void SetVector(const N_Vector &nv, Vector &v)
 #endif
    else
    {
-#if defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       content->setFromHost(v.GetData());
-#elif defined(MFEM_USE_OCCA_NVECTOR)
+#elif defined(MFEM_USE_NVECTOR_OCCA)
       NVOCCAContent *content = (NVOCCAContent *) nv->content;
       content->vec->NewDataAndSize(v.GetData(), v.Size());
 #else
@@ -634,10 +634,10 @@ void SetVector(const N_Vector &nv, OccaVector &v)
 #endif
    else
    {
-#if defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
-      content->setFromDev(v.GetData());
-#elif defined(MFEM_USE_OCCA_NVECTOR)
+      content->setFromDevice((double *) v.GetData().ptr());
+#elif defined(MFEM_USE_NVECTOR_OCCA)
       NVOCCAContent *content = (NVOCCAContent *) nv->content;
       content->vec = &v;
 #else
@@ -664,10 +664,10 @@ long int GetLength(const N_Vector &nv)
 #endif
    else
    {
-#if defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       length = content->size();
-#elif defined(MFEM_USE_OCCA_NVECTOR)
+#elif defined(MFEM_USE_NVECTOR_OCCA)
       NVOCCAContent *content = (NVOCCAContent *) nv->content;
       length = content->vec->Size();
 #else
@@ -683,7 +683,7 @@ long int GetLength(const N_Vector &nv)
 
 CVODESolver::CVODESolver(int lmm, int iter) : SundialsSolver()
 {
-#if defined(MFEM_USE_OCCA) && defined(MFEM_USE_CUDA_NVECTOR)
+#if defined(MFEM_USE_OCCA) && defined(MFEM_USE_NVECTOR_CUDA)
    // pass the context to sundials
    nvec::setCudaContext(occa::cuda::getContext(occa::getDevice()));
 #endif
@@ -821,12 +821,14 @@ void CVODESolver::Init(TimeDependentOperator &f_)
 
 void CVODESolver::Step(Vector &x, double &t, double &dt)
 {
+  SundialsSolver::vectorType = 1;
   TStep(x, t, dt);
 }
 
 #ifdef MFEM_USE_OCCA
 void CVODESolver::Step(OccaVector &x, double &t, double &dt)
 {
+  SundialsSolver::vectorType = 2;
   TStep(x, t, dt);
 }
 #endif
@@ -1030,12 +1032,14 @@ void ARKODESolver::Init(TimeDependentOperator &f_)
 
 void ARKODESolver::Step(Vector &x, double &t, double &dt)
 {
+  vectorType = 1;
   TStep(x, t, dt);
 }
 
 #ifdef MFEM_USE_OCCA
 void ARKODESolver::Step(OccaVector &x, double &t, double &dt)
 {
+  vectorType = 2;
   TStep(x, t, dt);
 }
 #endif

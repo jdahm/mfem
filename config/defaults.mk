@@ -70,8 +70,8 @@ MFEM_USE_OPENMP      = NO
 MFEM_USE_MEMALLOC    = YES
 MFEM_TIMER_TYPE      = $(if $(NOTMAC),2,4)
 MFEM_USE_SUNDIALS    = NO
-MFEM_USE_CUDA_NVECTOR = NO
-MFEM_USE_OCCA_NVECTOR = NO
+MFEM_USE_NVECTOR_CUDA = NO
+MFEM_USE_NVECTOR_OCCA = NO
 MFEM_USE_MESQUITE    = NO
 MFEM_USE_SUITESPARSE = NO
 MFEM_USE_SUPERLU     = NO
@@ -134,20 +134,13 @@ ifeq ($(MFEM_USE_MPI),YES)
 endif
 
 # Check for mutually exclusive test options (temporary)
-ifeq ($(MFEM_USE_CUDA_NVECTOR),YES)
-ifeq ($(MFEM_USE_OCCA_NVECTOR),YES)
-$(error MFEM_USE_CUDA_NVECTOR and MFEM_USE_OCCA_NVECTOR are mutually exclusive)
+ifeq ($(MFEM_USE_NVECTOR_CUDA),YES)
+ifeq ($(MFEM_USE_NVECTOR_OCCA),YES)
+$(error MFEM_USE_NVECTOR_CUDA and MFEM_USE_NVECTOR_OCCA are mutually exclusive)
 endif
 endif
 
-ifeq ($(MFEM_USE_CUDA_NVECTOR),YES)
-   ifndef CUDA_DIR
-      CUDA_DIR = /usr/local/cuda
-   endif
-   SUNDIALS_OPT += -I$(CUDA_DIR)/include
-   SUNDIALS_LIB += -L$(CUDA_DIR)/lib64 -lsundials_nveccuda -lcudart
-endif
-ifeq ($(MFEM_USE_OCCA_NVECTOR),YES)
+ifeq ($(MFEM_USE_NVECTOR_CUDA),YES)
    ifndef CUDA_DIR
       CUDA_DIR = /usr/local/cuda
    endif
