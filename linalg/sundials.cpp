@@ -55,7 +55,7 @@ using namespace std;
 namespace mfem
 {
 
-#ifdef MFEM_USE_OCCA
+#ifdef MFEM_USE_NVECTOR_OCCA
 
 // Operations for Occa NVector implementation
 namespace ocs {
@@ -389,7 +389,7 @@ static N_Vector NewOccaNVector(long int length)
    return y;
 }
 
-#endif // ifdef MFEM_USE_OCCA
+#endif // ifdef MFEM_USE_NVECTOR_OCCA
 
 
 double SundialsODELinearSolver::GetTimeStep(void *sundials_mem)

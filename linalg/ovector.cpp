@@ -82,7 +82,9 @@ namespace mfem {
     if (nvid == SUNDIALS_NVEC_SERIAL)
     {
       N_VectorContent_Serial content = (N_VectorContent_Serial) nv->content;
-      SetSize(occa::getDevice(), content->length, content->data);
+      // SetSize(occa::getDevice(), content->length, content->data);
+      data = occa::cpu::wrapMemory(content->data, content->length * sizeof(double));
+      size = content->length;
     }
     else if (nvid == SUNDIALS_NVEC_PARALLEL)
     {
