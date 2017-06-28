@@ -70,6 +70,7 @@ MFEM_USE_OPENMP      = NO
 MFEM_USE_MEMALLOC    = YES
 MFEM_TIMER_TYPE      = $(if $(NOTMAC),2,4)
 MFEM_USE_SUNDIALS    = NO
+MFEM_USE_NVECTOR_OPENMP = NO
 MFEM_USE_NVECTOR_CUDA = NO
 MFEM_USE_NVECTOR_OCCA = NO
 MFEM_USE_MESQUITE    = NO
@@ -131,6 +132,10 @@ SUNDIALS_LIB = -Wl,-rpath,$(SUNDIALS_DIR)/lib -L$(SUNDIALS_DIR)/lib\
 
 ifeq ($(MFEM_USE_MPI),YES)
    SUNDIALS_LIB += -lsundials_nvecparhyp -lsundials_nvecparallel
+endif
+ifeq ($(MFEM_USE_NVECTOR_OPENMP),YES)
+   SUNDIALS_OPT = -fopenmp
+   SUNDIALS_LIB += -lsundials_nvecopenmp
 endif
 
 # Check for mutually exclusive test options (temporary)

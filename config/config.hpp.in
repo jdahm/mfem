@@ -68,6 +68,9 @@
 // Enable MFEM functionality based on the SUNDIALS libraries.
 // #define MFEM_USE_SUNDIALS
 
+// Enable Use of the OpenMP NVector implementation in SUNDIALS.
+// #define MFEM_USE_NVECTOR_OPENMP
+
 // Enable Use of the CUDA NVector implementation in SUNDIALS.
 // #define MFEM_USE_NVECTOR_CUDA
 

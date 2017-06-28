@@ -19,8 +19,11 @@
 #include <nvector/nvector_parallel.h>
 #include <nvector/nvector_parhyp.h>
 #endif
-#if defined(MFEM_USE_CUDA_VECTOR) || defined (MFEM_USE_OCCA_VECTOR)
-#include <nvector/nvector_cuda.h>
+// #if defined(MFEM_USE_NVECTOR_CUDA) || defined (MFEM_USE_NVECTOR_OCCA)
+// #include <nvector/nvector_cuda.h>
+// #endif
+#ifdef MFEM_USE_NVECTOR_OPENMP
+#include <nvector/nvector_openmp.h>
 #endif
 #ifdef MFEM_USE_NVECTOR_CUDA
 #include <occa/modes/cuda.hpp>
@@ -86,6 +89,14 @@ namespace mfem {
       data = occa::cpu::wrapMemory(content->data, content->length * sizeof(double));
       size = content->length;
     }
+#ifdef MFEM_USE_NVECTOR_OPENMP
+    else if (nvid == SUNDIALS_NVEC_OPENMP)
+    {
+      N_VectorContent_OpenMP content = (N_VectorContent_OpenMP) nv->content;
+      data = occa::cpu::wrapMemory(content->data, content->length * sizeof(double));
+      size = content->length;
+    }
+#endif
     else if (nvid == SUNDIALS_NVEC_PARALLEL)
     {
       mfem_error("TBD");

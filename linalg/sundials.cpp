@@ -19,13 +19,21 @@
 #endif
 
 #include <nvector/nvector_serial.h>
+#include <nvector/nvector_openmp.h>
 
-#if defined(MFEM_USE_NVECTOR_CUDA) || defined(MFEM_USE_NVECTOR_OCCA)
-#include <occa/modes/cuda.hpp>
+#ifdef MFEM_USE_NVECTOR_OPENMP
+#include <occa/modes/openmp/utils.hpp>
+#endif
+
+#ifdef MFEM_USE_NVECTOR_OPENMP
+#include <nvector/nvector_openmp.h>
 #endif
 #ifdef MFEM_USE_NVECTOR_CUDA
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
+#endif
+#if defined(MFEM_USE_NVECTOR_CUDA) || defined(MFEM_USE_NVECTOR_OCCA)
+#include <occa/modes/cuda.hpp>
 #endif
 
 #ifdef MFEM_USE_MPI
@@ -508,7 +516,7 @@ N_Vector SundialsSolver::CreateVector(long int length) const
    const std::string mode = "Serial";
 #endif
 
-   if ((mode == "Serial") || (mode == "OpenMP"))
+   if ((mode == "Serial"))
    {
 #ifdef MFEM_USE_MPI
       long int global_length;
@@ -518,6 +526,18 @@ N_Vector SundialsSolver::CreateVector(long int length) const
       nv = N_VNew_Serial(length);
 #endif
    }
+#ifdef MFEM_USE_NVECTOR_OPENMP
+   else if (mode == "OpenMP")
+   {
+#ifdef MFEM_USE_MPI
+      if (sundials_comm != MPI_COMM_NULL)
+      {
+         mfem_error("Not supported");
+      }
+#endif
+      nv = N_VNew_OpenMP(length, occa::openmp::numThreads());
+   }
+#endif
    else
    {
 #if defined(MFEM_USE_NVECTOR_CUDA)
@@ -548,8 +568,18 @@ void Destroy(N_Vector &nv)
    {
       N_VectorContent_Serial content = (N_VectorContent_Serial) nv->content;
       long int length = content->length;
+      N_VDestroy(nv);
       nv = N_VNewEmpty_Serial(length);
    }
+#ifdef MFEM_USE_NVECTOR_OPENMP
+   else if (nvid == SUNDIALS_NVEC_OPENMP)
+   {
+      N_VectorContent_Serial content = (N_VectorContent_Serial) nv->content;
+      long int length = content->length;
+      N_VDestroy(nv);
+      nv = N_VNewEmpty_OpenMP(length, occa::openmp::numThreads());
+   }
+#endif
 #ifdef MFEM_USE_MPI
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
@@ -586,6 +616,15 @@ void SetVector(const N_Vector &nv, Vector &v)
      content->data = v.GetData();
      content->own_data = false;
    }
+#ifdef MFEM_USE_NVECTOR_OPENMP
+   else if (nvid == SUNDIALS_NVEC_OPENMP)
+   {
+      N_VectorContent_OpenMP content = (N_VectorContent_OpenMP) nv->content;
+      if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+      content->data = v.GetData();
+      content->own_data = false;
+   }
+#endif
 #ifdef MFEM_USE_MPI
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
@@ -623,6 +662,15 @@ void SetVector(const N_Vector &nv, OccaVector &v)
      content->data = (realtype *) v.GetData().ptr();
      content->own_data = false;
    }
+#ifdef MFEM_USE_NVECTOR_OPENMP
+   else if (nvid == SUNDIALS_NVEC_OPENMP)
+   {
+      N_VectorContent_OpenMP content = (N_VectorContent_OpenMP) nv->content;
+      if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+      content->data = (realtype *) v.GetData().ptr();
+      content->own_data = false;
+   }
+#endif
 #ifdef MFEM_USE_MPI
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
@@ -683,10 +731,10 @@ long int GetLength(const N_Vector &nv)
 
 CVODESolver::CVODESolver(int lmm, int iter) : SundialsSolver()
 {
-#if defined(MFEM_USE_OCCA) && defined(MFEM_USE_NVECTOR_CUDA)
-   // pass the context to sundials
-   nvec::setCudaContext(occa::cuda::getContext(occa::getDevice()));
-#endif
+// #if defined(MFEM_USE_OCCA) && defined(MFEM_USE_NVECTOR_CUDA)
+//    // pass the context to sundials
+//    nvec::setCudaContext(occa::cuda::getContext(occa::getDevice()));
+// #endif
 
    // Create the solver memory.
    sundials_mem = CVodeCreate(lmm, iter);
