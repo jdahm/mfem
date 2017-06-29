@@ -162,7 +162,7 @@ protected:
 #endif
    ///@}
 
-   /// Create an N_Vector;
+   /// Create an N_Vector.
    N_Vector CreateVector(long int length) const;
 
 public:

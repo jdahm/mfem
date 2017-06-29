@@ -323,6 +323,9 @@ int main(int argc, char *argv[]) {
   //    time-step dt).
   ode_solver->Init(oper);
   double t = 0.0;
+  cout << "Advancing the ODE ...\n" << flush;
+  tic_toc.Clear();
+  tic_toc.Start();
 
   bool last_step = false;
   for (int ti = 1; !last_step; ti++) {
@@ -346,6 +349,8 @@ int main(int argc, char *argv[]) {
     // Set the parameters for the next timestep
     oper.SetParameters(u);
   }
+  tic_toc.Stop();
+  cout << " done, " << tic_toc.RealTime() << "s." << endl;
 
   // 9. Save the final solution. This output can be viewed later using GLVis:
   //    "glvis -m ex16.mesh -g ex16-final.gf".

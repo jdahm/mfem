@@ -134,7 +134,7 @@ ifeq ($(MFEM_USE_MPI),YES)
    SUNDIALS_LIB += -lsundials_nvecparhyp -lsundials_nvecparallel
 endif
 ifeq ($(MFEM_USE_NVECTOR_OPENMP),YES)
-   SUNDIALS_OPT = -fopenmp
+   SUNDIALS_OPT += -fopenmp
    SUNDIALS_LIB += -lsundials_nvecopenmp
 endif
 
