@@ -36,10 +36,6 @@
 #include <occa/modes/cuda.hpp>
 #endif
 
-#ifdef MFEM_USE_MPI
-#include <nvector/nvector_parallel.h>
-#endif
-
 // #include <cvode/cvode_impl.h>
 // #include <cvode/cvode_spgmr.h>
 

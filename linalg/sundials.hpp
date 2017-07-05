@@ -18,6 +18,7 @@
 
 #ifdef MFEM_USE_MPI
 #include <mpi.h>
+#include <nvector/nvector_parallel.h>
 #endif
 
 #include "ode.hpp"
