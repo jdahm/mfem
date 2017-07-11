@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
   CVODESolver *cvode    = NULL;
 
   // Relative and absolute tolerances for CVODE and ARKODE.
-  const double reltol = 1e-1, abstol = 1e-1;
+  const double reltol = 1e-4, abstol = 1e-4;
 
   switch (ode_solver_type) {
     // Implicit L-stable methods
@@ -468,6 +468,7 @@ ConductionOperator::~ConductionOperator() {
   delete T;
   delete M;
   delete K;
+  delete Koper;
 }
 
 double InitialTemperature(const Vector &x)

@@ -19,9 +19,9 @@
 #endif
 
 #include <nvector/nvector_serial.h>
-#include <nvector/nvector_openmp.h>
 
 #ifdef MFEM_USE_NVECTOR_OPENMP
+#include <nvector/nvector_openmp.h>
 #include <occa/modes/openmp/utils.hpp>
 #endif
 
