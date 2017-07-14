@@ -20,8 +20,9 @@ using namespace std;
 namespace mfem
 {
 
-const IntegrationRule &BilinearFormIntegrator::GetIntegrationRule(
-   const FiniteElement &trial_fe, const FiniteElement &test_fe)
+const IntegrationRule &BilinearFormIntegrator::GetIntegrationRule(const FiniteElement &trial_fe,
+                                                                  const FiniteElement &test_fe,
+                                                                  const ElementTransformation &eltrans)
 {
   static IntegrationRule ir;
    mfem_error ("BilinearFormIntegrator::GetIntegrationRule (...)\n"
@@ -371,7 +372,8 @@ void MixedScalarVectorIntegrator::AssembleElementMatrix2(
 }
 
 const IntegrationRule& GetDiffusionIntegrationRule(const FiniteElement &trial_fe,
-                                                   const FiniteElement &test_fe) {
+                                                   const FiniteElement &test_fe,
+                                                   const ElementTransformation &eltrans) {
   int order;
   if (trial_fe.Space() == FunctionSpace::Pk) {
     order = trial_fe.GetOrder() + test_fe.GetOrder() - 2;
@@ -385,15 +387,16 @@ const IntegrationRule& GetDiffusionIntegrationRule(const FiniteElement &trial_fe
   return IntRules.Get(trial_fe.GetGeomType(), order);
 }
 
-const IntegrationRule &DiffusionIntegrator::GetIntegrationRule(
-   const FiniteElement &trial_fe, const FiniteElement &test_fe)
+const IntegrationRule &DiffusionIntegrator::GetIntegrationRule(const FiniteElement &trial_fe,
+                                                               const FiniteElement &test_fe,
+                                                               const ElementTransformation &eltrans)
 {
   if (IntRule != NULL)
   {
      return *IntRule;
   }
 
-  return GetDiffusionIntegrationRule(trial_fe, test_fe);
+  return GetDiffusionIntegrationRule(trial_fe, test_fe, eltrans);
 }
 
 void DiffusionIntegrator::AssembleElementMatrix
@@ -413,7 +416,7 @@ void DiffusionIntegrator::AssembleElementMatrix
    dshapedxt.SetSize(nd,spaceDim);
    invdfdx.SetSize(dim,spaceDim);
 #endif
-   const IntegrationRule &ir = GetIntegrationRule(el, el);
+   const IntegrationRule &ir = GetIntegrationRule(el, el, Trans);
 
    elmat.SetSize(nd);
    elmat = 0.0;
@@ -469,7 +472,7 @@ void DiffusionIntegrator::AssembleElementMatrix2(
    te_dshapedxt.SetSize(te_nd, spaceDim);
    invdfdx.SetSize(dim, spaceDim);
 #endif
-   const IntegrationRule &ir = GetIntegrationRule(trial_fe, test_fe);
+   const IntegrationRule &ir = GetIntegrationRule(trial_fe, test_fe, Trans);
 
    elmat.SetSize(te_nd, tr_nd);
    elmat = 0.0;
@@ -710,24 +713,26 @@ double DiffusionIntegrator::ComputeFluxEnergy
 
 
 const IntegrationRule& GetMassIntegrationRule(const FiniteElement &trial_fe,
-                                              const FiniteElement &test_fe) {
+                                              const FiniteElement &test_fe,
+                                              const ElementTransformation &eltrans) {
     const int elorder = max(trial_fe.GetOrder(), test_fe.GetOrder());
-    // const int order = 2 * elorder + Trans.OrderW();
-    const int order = 2 * elorder;
+    const int order = 2 * elorder + eltrans.OrderW();
+    // const int order = 2 * elorder;
     if (trial_fe.Space() == FunctionSpace::rQk) {
        return RefinedIntRules.Get(trial_fe.GetGeomType(), order);
     }
     return IntRules.Get(trial_fe.GetGeomType(), order);
 }
 
-const IntegrationRule &MassIntegrator::GetIntegrationRule(
-   const FiniteElement &trial_fe, const FiniteElement &test_fe)
+const IntegrationRule &MassIntegrator::GetIntegrationRule(const FiniteElement &trial_fe,
+                                                          const FiniteElement &test_fe,
+                                                          const ElementTransformation &eltrans)
 {
     if (IntRule != NULL)
     {
        return *IntRule;
     }
-    return GetMassIntegrationRule(trial_fe, test_fe);
+    return GetMassIntegrationRule(trial_fe, test_fe, eltrans);
 }
 
 void MassIntegrator::AssembleElementMatrix
@@ -744,7 +749,7 @@ void MassIntegrator::AssembleElementMatrix
    elmat.SetSize(nd);
    shape.SetSize(nd);
 
-   const IntegrationRule &ir = GetIntegrationRule(el, el);
+   const IntegrationRule &ir = GetIntegrationRule(el, el, Trans);
 
    elmat = 0.0;
    for (int i = 0; i < ir.GetNPoints(); i++)

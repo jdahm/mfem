@@ -462,7 +462,7 @@ namespace mfem {
   }
 
   //---[ Base Integrator ]--------------
-  OccaIntegrator::OccaIntegrator() {}
+  OccaIntegrator::OccaIntegrator(const IntegrationRule *ir_) : ir(ir_) {}
   OccaIntegrator::~OccaIntegrator() {}
 
   void OccaIntegrator::SetupMaps() {
@@ -545,7 +545,7 @@ namespace mfem {
     props = props_;
     itype = itype_;
 
-    SetupIntegrationRule();
+    if (!ir) SetupIntegrationRule();
     SetupMaps();
     SetupProperties(props);
 
@@ -578,7 +578,9 @@ namespace mfem {
   //====================================
 
   //---[ Diffusion Integrator ]---------
-  OccaDiffusionIntegrator::OccaDiffusionIntegrator(const OccaCoefficient &coeff_) :
+  OccaDiffusionIntegrator::OccaDiffusionIntegrator(const OccaCoefficient &coeff_,
+                                                   const IntegrationRule *ir_) :
+    OccaIntegrator(ir_),
     coeff(coeff_) {
     coeff.SetName("COEFF");
   }
@@ -592,7 +594,8 @@ namespace mfem {
   void OccaDiffusionIntegrator::SetupIntegrationRule() {
     const FiniteElement &trialFE = *(trialFespace->GetFE(0));
     const FiniteElement &testFE  = *(testFespace->GetFE(0));
-    ir = &(GetDiffusionIntegrationRule(trialFE, testFE));
+    const ElementTransformation &eltrans = *(trialFespace->GetElementTransformation(0));
+    ir = &(GetDiffusionIntegrationRule(trialFE, testFE, eltrans));
   }
 
   void OccaDiffusionIntegrator::Setup() {
@@ -639,7 +642,9 @@ namespace mfem {
   //====================================
 
   //---[ Mass Integrator ]--------------
-  OccaMassIntegrator::OccaMassIntegrator(const OccaCoefficient &coeff_) :
+  OccaMassIntegrator::OccaMassIntegrator(const OccaCoefficient &coeff_,
+                                         const IntegrationRule *ir_) :
+    OccaIntegrator(ir_),
     coeff(coeff_) {
     coeff.SetName("COEFF");
   }
@@ -653,7 +658,8 @@ namespace mfem {
   void OccaMassIntegrator::SetupIntegrationRule() {
     const FiniteElement &trialFE = *(trialFespace->GetFE(0));
     const FiniteElement &testFE  = *(testFespace->GetFE(0));
-    ir = &(GetMassIntegrationRule(trialFE, testFE));
+    const ElementTransformation &eltrans = *(trialFespace->GetElementTransformation(0));
+    ir = &(GetMassIntegrationRule(trialFE, testFE, eltrans));
   }
 
   void OccaMassIntegrator::Setup() {
@@ -695,7 +701,9 @@ namespace mfem {
   //====================================
 
   //---[ Vector Mass Integrator ]--------------
-  OccaVectorMassIntegrator::OccaVectorMassIntegrator(const OccaCoefficient &coeff_) :
+  OccaVectorMassIntegrator::OccaVectorMassIntegrator(const OccaCoefficient &coeff_,
+                                                     const IntegrationRule *ir_) :
+    OccaIntegrator(ir_),
     coeff(coeff_) {
     coeff.SetName("COEFF");
   }
@@ -709,7 +717,8 @@ namespace mfem {
   void OccaVectorMassIntegrator::SetupIntegrationRule() {
     const FiniteElement &trialFE = *(trialFespace->GetFE(0));
     const FiniteElement &testFE  = *(testFespace->GetFE(0));
-    ir = &(GetMassIntegrationRule(trialFE, testFE));
+    const ElementTransformation &eltrans = (*trialFespace->GetElementTransformation(0));
+    ir = &(GetMassIntegrationRule(trialFE, testFE, eltrans));
   }
 
   void OccaVectorMassIntegrator::Setup() {

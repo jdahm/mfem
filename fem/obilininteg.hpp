@@ -147,7 +147,7 @@ namespace mfem {
     OccaDofQuadMaps mapsTranspose;
 
   public:
-    OccaIntegrator();
+    OccaIntegrator(const IntegrationRule *ir_);
     virtual ~OccaIntegrator();
 
     occa::device GetDevice();
@@ -201,7 +201,8 @@ namespace mfem {
     occa::array<double> jacobian, assembledOperator;
 
   public:
-    OccaDiffusionIntegrator(const OccaCoefficient &coeff_);
+    OccaDiffusionIntegrator(const OccaCoefficient &coeff_,
+                            const IntegrationRule *ir_ = NULL);
     virtual ~OccaDiffusionIntegrator();
 
     virtual std::string GetName();
@@ -225,7 +226,8 @@ namespace mfem {
     occa::array<double> jacobian, assembledOperator;
 
   public:
-    OccaMassIntegrator(const OccaCoefficient &coeff_);
+    OccaMassIntegrator(const OccaCoefficient &coeff_,
+                       const IntegrationRule *ir_ = NULL);
     virtual ~OccaMassIntegrator();
 
     virtual std::string GetName();
@@ -250,7 +252,8 @@ namespace mfem {
     occa::array<double> jacobian, assembledOperator;
 
   public:
-    OccaVectorMassIntegrator(const OccaCoefficient &coeff_);
+    OccaVectorMassIntegrator(const OccaCoefficient &coeff_,
+                             const IntegrationRule *ir_ = NULL);
     virtual ~OccaVectorMassIntegrator();
 
     virtual std::string GetName();

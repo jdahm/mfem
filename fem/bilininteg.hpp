@@ -29,7 +29,8 @@ protected:
 
 public:
    virtual const IntegrationRule &GetIntegrationRule(const FiniteElement &trial_fe,
-                                                     const FiniteElement &test_fe);
+                                                     const FiniteElement &test_fe,
+                                                     const ElementTransformation &eltrans);
 
    /// Given a particular Finite Element computes the element matrix elmat.
    virtual void AssembleElementMatrix(const FiniteElement &el,
@@ -1576,7 +1577,8 @@ protected:
 };
 
 const IntegrationRule &GetDiffusionIntegrationRule(const FiniteElement &trial_fe,
-                                                   const FiniteElement &test_fe);
+                                                   const FiniteElement &test_fe,
+                                                   const ElementTransformation &eltrans);
 
 /** Class for integrating the bilinear form a(u,v) := (Q grad u, grad v) where Q
     can be a scalar or a matrix coefficient. */
@@ -1603,7 +1605,8 @@ public:
 
    /// Return IntRule or the default integration rule
   virtual const IntegrationRule &GetIntegrationRule(const FiniteElement &trial_fe,
-                                                    const FiniteElement &test_fe);
+                                                    const FiniteElement &test_fe,
+                                                    const ElementTransformation &eltrans);
 
    /** Given a particular Finite Element
        computes the element stiffness matrix elmat. */
@@ -1633,7 +1636,8 @@ public:
 };
 
 const IntegrationRule &GetMassIntegrationRule(const FiniteElement &trial_fe,
-                                              const FiniteElement &test_fe);
+                                              const FiniteElement &test_fe,
+                                              const ElementTransformation &eltrans);
 
 /** Class for local mass matrix assembling a(u,v) := (Q u, v) */
 class MassIntegrator: public BilinearFormIntegrator
@@ -1651,8 +1655,9 @@ public:
    MassIntegrator(Coefficient &q, const IntegrationRule *ir = NULL)
       : BilinearFormIntegrator(ir), Q(&q) { }
 
-   virtual const IntegrationRule &GetIntegrationRule(const FiniteElement &trial_fe,
-                                                     const FiniteElement &test_fe);
+  virtual const IntegrationRule &GetIntegrationRule(const FiniteElement &trial_fe,
+                                                    const FiniteElement &test_fe,
+                                                    const ElementTransformation &eltrans);
 
    /** Given a particular Finite Element
        computes the element mass matrix elmat. */
