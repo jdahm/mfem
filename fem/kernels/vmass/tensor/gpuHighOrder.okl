@@ -249,7 +249,7 @@ kernel void MultAdd3D(const int numElements,
     exclusive double r_z[NUM_QUAD_1D];
     exclusive double r_z2[NUM_DOFS_1D];
 
-    for (int v = 0; v < 2; ++v) {
+    for (int v = 0; v < 3; ++v) {
       for (int y = 0; y < NUM_MAX_1D; ++y; inner) {
         for (int x = 0; x < NUM_MAX_1D; ++x; inner) {
           const int id = (y * NUM_MAX_1D) + x;
