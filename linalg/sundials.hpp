@@ -46,22 +46,10 @@ struct KINMemRec;
 namespace mfem
 {
 
-#ifdef MFEM_USE_NVECTOR_OCCA
-/// OCCA NVector content
-struct NVOCCAContent {
-   OccaVector *vec;
-   bool ownVector;
-#ifdef MFEM_USE_MPI
-   MPI_Comm comm;
-#endif
-};
-#endif
-
-namespace nv
+namespace nvector
 {
 
 /* N_Vector methods to avoid further specialization */
-// TODO Remove dependence on these here
 
 /// Disassociate the existing data and set to v
 void SetVector(const N_Vector &nv, Vector &v);
@@ -272,8 +260,8 @@ void CVODESolver::TStep(TVector &x, double &t, double &dt)
 {
    CVodeMem mem = (CVodeMem) SundialsMem();
 
-   MFEM_VERIFY(nv::GetLength(y) == static_cast<long int>(x.Size()), "");
-   nv::SetVector(y, x);
+   MFEM_VERIFY(nvector::GetLength(y) == static_cast<long int>(x.Size()), "");
+   nvector::SetVector(y, x);
 
    if (mem->cv_nst == 0)
    {
@@ -401,8 +389,8 @@ void ARKODESolver::TStep(TVector &x, double &t, double &dt)
 {
    ARKodeMem mem = (ARKodeMem) SundialsMem();
 
-   MFEM_VERIFY(nv::GetLength(y) == static_cast<long int>(x.Size()), "");
-   nv::SetVector(y, x);
+   MFEM_VERIFY(nvector::GetLength(y) == static_cast<long int>(x.Size()), "");
+   nvector::SetVector(y, x);
 
    if (mem->ark_nst == 0)
    {
@@ -609,10 +597,10 @@ void KinSolver::TMult(TVector &x, const TVector &x_scale, const TVector &fx_scal
    flag = KINSetFuncNormTol(sundials_mem, mem->kin_fnormtol);
    MFEM_ASSERT(flag >= 0, "KINSetFuncNormTol() failed!");
 
-   MFEM_VERIFY(nv::GetLength(y) == static_cast<long int>(x.Size()), "");
-   nv::SetVector(y, x);
-   nv::SetVector(y_scale, const_cast<TVector &>(x_scale));
-   nv::SetVector(f_scale, const_cast<TVector &>(fx_scale));
+   MFEM_VERIFY(nvector::GetLength(y) == static_cast<long int>(x.Size()), "");
+   nvector::SetVector(y, x);
+   nvector::SetVector(y_scale, const_cast<TVector &>(x_scale));
+   nvector::SetVector(f_scale, const_cast<TVector &>(fx_scale));
 
    if (!iterative_mode) { x = 0.0; }
 

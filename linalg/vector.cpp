@@ -24,10 +24,6 @@
 typedef nvec::Vector<double, long int> SundialsCudaVector;
 #endif
 
-#ifdef MFEM_USE_NVECTOR_OCCA
-#include "sundials.hpp"
-#endif
-
 #ifdef MFEM_USE_OCCA
 #include "ovector.hpp"
 #endif
@@ -802,20 +798,17 @@ Vector::Vector(N_Vector nv)
       SetDataAndSize(hpv_local->data, hpv_local->size);
    }
 #endif
-   else
+#ifdef MFEM_USE_NVECTOR_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
-#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       content->copyFromDev();
       SetDataAndSize(content->host(), content->size());
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-      // This might work, but if ptr() is on the device this will have issues
-      // NVOCCAContent *content = (NVOCCAContent *) nv->content;
-      // SetDataAndSize(content->vec->GetData().ptr(), content->vec->Size());
-      mfem_error("TBD");
-#else
-      mfem_error("Error in Vector constructor.");
+   }
 #endif
+   else
+   {
+      mfem_error("Error in Vector constructor.");
    }
 }
 
@@ -845,20 +838,18 @@ void Vector::ToNVector(N_Vector &nv)
       hpv_local->size = size;
    }
 #endif
-   else
+#ifdef MFEM_USE_NVECTOR_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
-#if defined(MFEM_USE_NVECTOR_CUDA)
       N_VDestroy(nv);
       nv = N_VNew_Cuda(size);
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       content->setFromHost(data);
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-      NVOCCAContent *content = (NVOCCAContent *) nv->content;
-      content->vec = new OccaVector(*this);
-      content->ownVector = true;
-#else
-      mfem_error("Error in constructor.");
+   }
 #endif
+   else
+   {
+      mfem_error("Error in constructor.");
    }
 }
 

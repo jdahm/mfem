@@ -20,9 +20,6 @@
 #include <nvector/nvector_parallel.h>
 #include <nvector/nvector_parhyp.h>
 #endif
-// #if defined(MFEM_USE_NVECTOR_CUDA) || defined (MFEM_USE_NVECTOR_OCCA)
-// #include <nvector/nvector_cuda.h>
-// #endif
 #ifdef MFEM_USE_NVECTOR_OPENMP
 #include <nvector/nvector_openmp.h>
 #endif
@@ -30,9 +27,6 @@
 #include <occa/modes/cuda.hpp>
 #include <nvector/cuda/Vector.hpp>
 typedef nvec::Vector<double, long int> SundialsCudaVector;
-#endif
-#ifdef MFEM_USE_NVECTOR_OCCA
-#include "sundials.hpp"
 #endif
 
 namespace mfem {
@@ -101,21 +95,21 @@ namespace mfem {
     {
       mfem_error("TBD");
     }
+#ifdef MFEM_USE_NVECTOR_CUDA
+    else if (nvid == SUNDIALS_NVEC_CUDA)
+    {
+      SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
+      data = occa::cuda::wrapMemory(occa::getDevice(), content->device(),
+                                    content->size() * sizeof(double));
+      size = content->size();
+    }
+#endif
     else
     {
-#if defined(MFEM_USE_NVECTOR_CUDA)
-       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
-       data = occa::cuda::wrapMemory(occa::getDevice(), content->device(),
-                                     content->size() * sizeof(double));
-       size = content->size();
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-       NVOCCAContent *content = (NVOCCAContent *) nv->content;
-       SetDataAndSize(content->vec->GetData(), content->vec->Size());
-#else
-       mfem_error("Type not supported in OccaVector constructor");
-#endif
+      mfem_error("Type not supported in OccaVector constructor");
     }
   }
+
 #endif
 
   /// Convert to Vector

@@ -23,32 +23,14 @@
 
 #ifdef MFEM_USE_NVECTOR_OPENMP
 #include <occa/modes/openmp/utils.hpp>
+#include <omp.h>
 #endif
 
-#ifdef MFEM_USE_NVECTOR_OPENMP
-#include <nvector/nvector_openmp.h>
-#endif
 #ifdef MFEM_USE_NVECTOR_CUDA
 #include <nvector/nvector_cuda.h>
 #include <nvector/cuda/Vector.hpp>
-#endif
-#if defined(MFEM_USE_NVECTOR_CUDA) || defined(MFEM_USE_NVECTOR_OCCA)
 #include <occa/modes/cuda.hpp>
 #endif
-
-// #include <cvode/cvode_impl.h>
-// #include <cvode/cvode_spgmr.h>
-
-// // This just hides a warning (to be removed after it's fixed in SUNDIALS).
-// #ifdef MSG_TIME_INT
-// #undef MSG_TIME_INT
-// #endif
-
-// #include <arkode/arkode_impl.h>
-// #include <arkode/arkode_spgmr.h>
-
-// #include <kinsol/kinsol_impl.h>
-// #include <kinsol/kinsol_spgmr.h>
 
 #ifdef MFEM_USE_NVECTOR_CUDA
 typedef nvec::Vector<double, long int> SundialsCudaVector;
@@ -58,343 +40,6 @@ using namespace std;
 
 namespace mfem
 {
-
-#ifdef MFEM_USE_NVECTOR_OCCA
-
-// Operations for Occa NVector implementation
-namespace ocs {
-
-// Helper functions for one-shot get/set vector
-static OccaVector& ExtractVector(N_Vector w)
-{
-   NVOCCAContent *content = (NVOCCAContent *) w->content;
-   return *(content->vec);
-}
-
-static void SetVector(OccaVector &v, N_Vector w)
-{
-   NVOCCAContent *content = (NVOCCAContent *) w->content;
-   content->vec = &v;
-}
-
-// Core operations
-static N_Vector_ID nvgetvectorid(N_Vector w) { return SUNDIALS_NVEC_CUDA; }
-
-static N_Vector nvcloneempty(N_Vector w)
-{
-   N_Vector v = new _generic_N_Vector;
-
-   // Fill content
-   v->content = new NVOCCAContent;
-   NVOCCAContent *vcontent = (NVOCCAContent *) v->content;
-   vcontent->ownVector = false;
-
-   // Fill ops
-   v->ops = new _generic_N_Vector_Ops;
-   _generic_N_Vector_Ops *ops = v->ops;
-
-   ops->nvgetvectorid     = w->ops->nvgetvectorid;
-   ops->nvclone           = w->ops->nvclone;
-   ops->nvcloneempty      = w->ops->nvcloneempty;
-   ops->nvdestroy         = w->ops->nvdestroy;
-   ops->nvspace           = w->ops->nvspace;
-   ops->nvgetarraypointer = w->ops->nvgetarraypointer;
-   ops->nvsetarraypointer = w->ops->nvsetarraypointer;
-   ops->nvlinearsum       = w->ops->nvlinearsum;
-   ops->nvconst           = w->ops->nvconst;
-   ops->nvprod            = w->ops->nvprod;
-   ops->nvdiv             = w->ops->nvdiv;
-   ops->nvscale           = w->ops->nvscale;
-   ops->nvabs             = w->ops->nvabs;
-   ops->nvinv             = w->ops->nvinv;
-   ops->nvaddconst        = w->ops->nvaddconst;
-   ops->nvdotprod         = w->ops->nvdotprod;
-   ops->nvmaxnorm         = w->ops->nvmaxnorm;
-   ops->nvwrmsnormmask    = w->ops->nvwrmsnormmask;
-   ops->nvwrmsnorm        = w->ops->nvwrmsnorm;
-   ops->nvmin             = w->ops->nvmin;
-   ops->nvwl2norm         = w->ops->nvwl2norm;
-   ops->nvl1norm          = w->ops->nvl1norm;
-   ops->nvcompare         = w->ops->nvcompare;
-   ops->nvinvtest         = w->ops->nvinvtest;
-   ops->nvconstrmask      = w->ops->nvconstrmask;
-   ops->nvminquotient     = w->ops->nvminquotient;
-
-   return v;
-}
-
-static N_Vector nvclone(N_Vector w)
-{
-   N_Vector v = nvcloneempty(w);
-   v->content = w->content;
-
-   return v;
-}
-
-static void nvdestroy(N_Vector w)
-{
-   NVOCCAContent *wcontent = (NVOCCAContent *) w->content;
-   delete w->ops;
-   if (wcontent->ownVector) delete wcontent->vec;
-   delete wcontent;
-   delete w;
-}
-
-static void nvspace(N_Vector v, long int *lrw, long int *liw)
-{
-   OccaVector &vec = ExtractVector(v);
-   *lrw = vec.Size();
-   *liw = 1;
-}
-
-static realtype* nvgetarraypointer(N_Vector v)
-{
-   OccaVector &vec = ExtractVector(v);
-   return (realtype *) vec.GetData().ptr();
-}
-
-static void nvsetarraypointer(realtype *v_data, N_Vector v)
-{
-   OccaVector &vec = ExtractVector(v);
-   const std::string mode = vec.GetData().getDevice().mode();
-
-   if (mode == "CUDA")
-   {
-      occa::memory mem =
-         occa::cuda::wrapMemory(occa::getDevice(), v_data, vec.Size() * sizeof(realtype *));
-      vec.NewDataAndSize(mem, vec.Size());
-   }
-   else
-   {
-      mfem_error("Not yet implemented");
-   }
-}
-
-static void nvlinearsum(realtype a, N_Vector x, realtype b, N_Vector y, N_Vector z)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vy = ExtractVector(y);
-   OccaVector &vz = ExtractVector(z);
-   if (z == y)
-   {
-      vy.Set(a, vx);
-   }
-   else if (z == x)
-   {
-      vx.Set(b, vy);
-   }
-   else
-   {
-      vz.Set(a, vx);
-      vz.Add(b, vy);
-   }
-}
-
-static void nvconst(realtype c, N_Vector z)
-{
-   OccaVector &vz = ExtractVector(z);
-   vz *= c;
-}
-
-static void nvprod(N_Vector x, N_Vector y, N_Vector z)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vy = ExtractVector(y);
-   OccaVector &vz = ExtractVector(z);
-   vz = vx;
-   vz *= vy;
-}
-
-static void nvdiv(N_Vector x, N_Vector y, N_Vector z)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vy = ExtractVector(y);
-   OccaVector &vz = ExtractVector(z);
-
-   vz = vx;
-   vz /= vy;
-}
-
-static void nvscale(realtype c, N_Vector x, N_Vector z)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vz = ExtractVector(z);
-   if (z == x)
-   {
-      vx *= c;
-   }
-   else
-   {
-      vz.Set(c, vx);
-   }
-}
-
-static void nvabs(N_Vector x, N_Vector z)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vz = ExtractVector(z);
-
-   vz.NewDataAndSize(vx.GetData(), vx.Size());
-   vz.Abs();
-}
-
-static void nvinv(N_Vector x, N_Vector z)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vz = ExtractVector(z);
-
-   static occa::kernelBuilder builder =
-      makeCustomBuilder("vector_inv",
-                        "v0[i] = 1.0 / v1[i];");
-
-   occa::kernel kernel = builder.build(occa::getDevice());
-   kernel((int) vz.Size(), vz.GetData(), vx.GetData());
-}
-
-static void nvaddconst(N_Vector x, realtype b, N_Vector z)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vz = ExtractVector(z);
-
-   vz.NewDataAndSize(vx.GetData(), vx.Size());
-   vz += b;
-}
-
-static realtype nvdotprod(N_Vector x, N_Vector y)
-{
-   OccaVector &vx = ExtractVector(x);
-   OccaVector &vy = ExtractVector(y);
-
-   return vx * vy;
-}
-
-static realtype nvmaxnorm(N_Vector x)
-{
-   OccaVector &vx = ExtractVector(x);
-   return occa::linalg::lInfNorm<double,double>(vx.GetData());
-}
-
-static realtype nvwrmsnorm(N_Vector x, N_Vector w)
-{
-   mfem_error("Not yet implemented");
-}
-
-static realtype nvwrmsnormmask(N_Vector, N_Vector, N_Vector)
-{
-   mfem_error("Not yet implemented");
-}
-
-static realtype nvmin(N_Vector x)
-{
-   OccaVector &vx = ExtractVector(x);
-   return occa::linalg::min<double,double>(vx.GetData());
-}
-
-static realtype nvwl2norm(N_Vector, N_Vector)
-{
-   mfem_error("Not yet implemented");
-}
-
-static realtype nvl1norm(N_Vector x)
-{
-   OccaVector &vx = ExtractVector(x);
-   return occa::linalg::l1Norm<double,double>(vx.GetData());
-}
-
-static void nvcompare(realtype, N_Vector, N_Vector)
-{
-   mfem_error("Not yet implemented");
-}
-
-static booleantype nvinvtest(N_Vector, N_Vector)
-{
-   mfem_error("Not yet implemented");
-}
-
-static booleantype nvconstrmask(N_Vector, N_Vector, N_Vector)
-{
-   mfem_error("Not yet implemented");
-}
-
-static realtype nvminquotient(N_Vector, N_Vector)
-{
-   mfem_error("Not yet implemented");
-}
-
-} // namespace ocs
-
-static N_Vector ConstructOccaNVector()
-{
-   N_Vector y = new _generic_N_Vector;
-   y->content = new NVOCCAContent;
-   y->ops     = new _generic_N_Vector_Ops;
-
-   // Fill operations
-   _generic_N_Vector_Ops *ops = y->ops;
-   ops->nvgetvectorid     = ocs::nvgetvectorid;
-   ops->nvclone           = ocs::nvclone;
-   ops->nvcloneempty      = ocs::nvcloneempty;
-   ops->nvdestroy         = ocs::nvdestroy;
-   ops->nvspace           = ocs::nvspace;
-   ops->nvgetarraypointer = ocs::nvgetarraypointer;
-   ops->nvsetarraypointer = ocs::nvsetarraypointer;
-   ops->nvlinearsum       = ocs::nvlinearsum;
-   ops->nvconst           = ocs::nvconst;
-   ops->nvprod            = ocs::nvprod;
-   ops->nvdiv             = ocs::nvdiv;
-   ops->nvscale           = ocs::nvscale;
-   ops->nvabs             = ocs::nvabs;
-   ops->nvinv             = ocs::nvinv;
-   ops->nvaddconst        = ocs::nvaddconst;
-   ops->nvdotprod         = ocs::nvdotprod;
-   ops->nvmaxnorm         = ocs::nvmaxnorm;
-   ops->nvwrmsnormmask    = ocs::nvwrmsnormmask;
-   ops->nvwrmsnorm        = ocs::nvwrmsnorm;
-   ops->nvmin             = ocs::nvmin;
-   ops->nvwl2norm         = ocs::nvwl2norm;
-   ops->nvl1norm          = ocs::nvl1norm;
-   ops->nvcompare         = ocs::nvcompare;
-   ops->nvinvtest         = ocs::nvinvtest;
-   ops->nvconstrmask      = ocs::nvconstrmask;
-   ops->nvminquotient     = ocs::nvminquotient;
-
-   return y;
-}
-
-static N_Vector MakeOccaNVector(OccaVector &v)
-{
-   N_Vector y = ConstructOccaNVector();
-
-   // Fill content
-   NVOCCAContent *ycontent = (NVOCCAContent *) y->content;
-   ycontent->vec = &v;
-   ycontent->ownVector = false;
-#ifdef MFEM_USE_MPI
-   ycontent->comm = sundials_comm;
-   mfem_error("Not yet supported");
-#endif
-
-   return y;
-}
-
-static N_Vector NewOccaNVector(long int length)
-{
-   N_Vector y = ConstructOccaNVector();
-
-   // Fill content
-   NVOCCAContent *ycontent = (NVOCCAContent *) y->content;
-   ycontent->vec = new OccaVector(length);
-   ycontent->ownVector = true;
-#ifdef MFEM_USE_MPI
-   ycontent->comm = sundials_comm;
-   mfem_error("Not yet supported");
-#endif
-
-   return y;
-}
-
-#endif // ifdef MFEM_USE_NVECTOR_OCCA
-
 
 double SundialsODELinearSolver::GetTimeStep(void *sundials_mem)
 {
@@ -506,7 +151,7 @@ N_Vector SundialsSolver::CreateVector(long int length) const
    N_Vector nv;
 
    /* Temporarily convoluted check */
-#if defined(MFEM_USE_OCCA)
+#ifdef MFEM_USE_OCCA
    const std::string mode = occa::getDevice().mode();
 #else
    const std::string mode = "Serial";
@@ -531,18 +176,18 @@ N_Vector SundialsSolver::CreateVector(long int length) const
          mfem_error("Not supported");
       }
 #endif
-      nv = N_VNew_OpenMP(length, occa::openmp::numThreads());
+      nv = N_VNew_OpenMP(length, omp_get_num_threads());
+   }
+#endif
+#ifdef MFEM_USE_NVECTOR_CUDA
+   else if (mode == "CUDA")
+   {
+      nv = N_VNew_Cuda(length);
    }
 #endif
    else
    {
-#if defined(MFEM_USE_NVECTOR_CUDA)
-      nv = N_VNew_Cuda(length);
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-      nv = NewOccaNVector(length);
-#else
       mfem_error("Type not supported in SundialsSolver::CreateVector()");
-#endif
    }
 
    return nv;
@@ -553,7 +198,7 @@ static inline CVodeMem Mem(const CVODESolver *self)
    return CVodeMem(self->SundialsMem());
 }
 
-namespace nv
+namespace nvector
 {
 
 void Destroy(N_Vector &nv)
@@ -573,7 +218,7 @@ void Destroy(N_Vector &nv)
       N_VectorContent_Serial content = (N_VectorContent_Serial) nv->content;
       long int length = content->length;
       N_VDestroy(nv);
-      nv = N_VNewEmpty_OpenMP(length, occa::openmp::numThreads());
+      nv = N_VNewEmpty_OpenMP(length, omp_get_num_threads());
    }
 #endif
 #ifdef MFEM_USE_MPI
@@ -587,17 +232,15 @@ void Destroy(N_Vector &nv)
       nv = N_VNewEmpty_Parallel(comm, local_length, global_length);
    }
 #endif
+#ifdef MFEM_USE_NVECTOR_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
+   {
+      // do nothing
+   }
+#endif
    else
    {
-#if defined(MFEM_USE_NVECTOR_CUDA)
-      // do nothing
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-      // delete the OccaVector
-      NVOCCAContent *content = (NVOCCAContent *) nv->content;
-      if (content->ownVector) delete content->vec;
-#else
-      mfem_error("Type not supported in nv::Destroy()");
-#endif
+      mfem_error("Type not supported in nvector::Destroy()");
    }
 }
 
@@ -608,7 +251,7 @@ void SetVector(const N_Vector &nv, Vector &v)
    if (nvid == SUNDIALS_NVEC_SERIAL)
    {
      N_VectorContent_Serial content = (N_VectorContent_Serial) nv->content;
-     if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+     if (content->own_data) mfem_error("Need to nvector::Destroy() data first!");
      content->data = v.GetData();
      content->own_data = false;
    }
@@ -616,7 +259,7 @@ void SetVector(const N_Vector &nv, Vector &v)
    else if (nvid == SUNDIALS_NVEC_OPENMP)
    {
       N_VectorContent_OpenMP content = (N_VectorContent_OpenMP) nv->content;
-      if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+      if (content->own_data) mfem_error("Need to nvector::Destroy() data first!");
       content->data = v.GetData();
       content->own_data = false;
    }
@@ -625,22 +268,21 @@ void SetVector(const N_Vector &nv, Vector &v)
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
      N_VectorContent_Parallel content = (N_VectorContent_Parallel) nv->content;
-      if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+      if (content->own_data) mfem_error("Need to nvector::Destroy() data first!");
       content->data = v.GetData();
       content->own_data = false;
    }
 #endif
-   else
+#ifdef MFEM_USE_NVECTOR_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
-#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       content->setFromHost(v.GetData());
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-      NVOCCAContent *content = (NVOCCAContent *) nv->content;
-      content->vec->NewDataAndSize(v.GetData(), v.Size());
-#else
-      mfem_error("Type not supported in nv::SetVector()");
+   }
 #endif
+   else
+   {
+      mfem_error("Type not supported in nvector::SetVector()");
    }
 }
 
@@ -652,9 +294,8 @@ void SetVector(const N_Vector &nv, OccaVector &v)
 
    if (nvid == SUNDIALS_NVEC_SERIAL)
    {
-     if (mode == "CUDA") mfem_error("OccaVector type not supported");
      N_VectorContent_Serial content = (N_VectorContent_Serial) nv->content;
-     if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+     if (content->own_data) mfem_error("Need to nvector::Destroy() data first!");
      content->data = (realtype *) v.GetData().ptr();
      content->own_data = false;
    }
@@ -662,7 +303,7 @@ void SetVector(const N_Vector &nv, OccaVector &v)
    else if (nvid == SUNDIALS_NVEC_OPENMP)
    {
       N_VectorContent_OpenMP content = (N_VectorContent_OpenMP) nv->content;
-      if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+      if (content->own_data) mfem_error("Need to nvector::Destroy() data first!");
       content->data = (realtype *) v.GetData().ptr();
       content->own_data = false;
    }
@@ -671,22 +312,21 @@ void SetVector(const N_Vector &nv, OccaVector &v)
    else if (nvid == SUNDIALS_NVEC_PARALLEL)
    {
      N_VectorContent_Parallel content = (N_VectorContent_Parallel) nv->content;
-     if (content->own_data) mfem_error("Need to nv::Destroy() data first!");
+     if (content->own_data) mfem_error("Need to nvector::Destroy() data first!");
      content->data = (realtype *) v.GetData().ptr();
      content->own_data = false;
    }
 #endif
-   else
+#ifdef MFEM_USE_NVECTOR_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
-#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       content->setFromDevice((double *) v.GetData().ptr());
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-      NVOCCAContent *content = (NVOCCAContent *) nv->content;
-      content->vec = &v;
-#else
-      mfem_error("Type not supported in nv::SetVector()");
+   }
 #endif
+   else
+   {
+      mfem_error("Type not supported in nvector::Destroy()");
    }
 }
 #endif
@@ -706,32 +346,26 @@ long int GetLength(const N_Vector &nv)
       length = N_VGetLocalLength_Parallel(nv);
    }
 #endif
-   else
+#ifdef MFEM_USE_NVECTOR_CUDA
+   else if (nvid == SUNDIALS_NVEC_CUDA)
    {
-#if defined(MFEM_USE_NVECTOR_CUDA)
       SundialsCudaVector *content = (SundialsCudaVector *) nv->content;
       length = content->size();
-#elif defined(MFEM_USE_NVECTOR_OCCA)
-      NVOCCAContent *content = (NVOCCAContent *) nv->content;
-      length = content->vec->Size();
-#else
-      mfem_error("Type not supported in nv::GetLength()");
+   }
 #endif
+   else
+   {
+      mfem_error("Type not supported in nvector::GetLength()");
    }
 
    return length;
 }
 
-} // namespace nv
+} // namespace nvector
 
 
 CVODESolver::CVODESolver(int lmm, int iter) : SundialsSolver()
 {
-// #if defined(MFEM_USE_OCCA) && defined(MFEM_USE_NVECTOR_CUDA)
-//    // pass the context to sundials
-//    nvec::setCudaContext(occa::cuda::getContext(occa::getDevice()));
-// #endif
-
    // Create the solver memory.
    sundials_mem = CVodeCreate(lmm, iter);
    MFEM_ASSERT(sundials_mem, "error in CVodeCreate()");
@@ -853,7 +487,7 @@ void CVODESolver::Init(TimeDependentOperator &f_)
    cvCopyInit(&backup, mem);
 
    // Delete the allocated data in y.
-   nv::Destroy(y);
+   nvector::Destroy(y);
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = CVodeSetUserData(sundials_mem, f);
@@ -1050,7 +684,7 @@ void ARKODESolver::Init(TimeDependentOperator &f_)
    arkCopyInit(&backup, mem);
 
    // Delete the allocated data in y.
-   nv::Destroy(y);
+   nvector::Destroy(y);
 
    // The TimeDependentOperator pointer, f, will be the user-defined data.
    flag = ARKodeSetUserData(sundials_mem, f);
@@ -1284,7 +918,7 @@ void KinSolver::SetOperator(const Operator &op)
    kinCopyInit(&backup, mem);
 
    // Delete the allocated data in y.
-   nv::Destroy(y);
+   nvector::Destroy(y);
 
    // The 'user_data' in KINSOL will be the pointer 'this'.
    flag = KINSetUserData(sundials_mem, this);
