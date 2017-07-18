@@ -65,6 +65,11 @@ namespace mfem {
     int GetLocalDofs() const;
     int GetVDim() const;
 
+    int GetVSize() const;
+    int GetTrueVSize() const;
+    int GetGlobalVSize() const;
+    int GetGlobalTrueVSize() const;
+
     const int* GetElementDofMap() const;
     const int* GetElementDofMapInverse() const;
 

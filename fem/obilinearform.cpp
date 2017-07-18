@@ -22,30 +22,30 @@
 namespace mfem {
   //---[ Bilinear Form ]----------------
   OccaBilinearForm::OccaBilinearForm(OccaFiniteElementSpace *ofespace_) :
-    Operator(ofespace_->GetGlobalDofs(),
-             ofespace_->GetGlobalDofs()) {
+    Operator(ofespace_->GetVSize(),
+             ofespace_->GetVSize()) {
     Init(occa::getDevice(), ofespace_, ofespace_);
   }
 
   OccaBilinearForm::OccaBilinearForm(occa::device device_,
                                      OccaFiniteElementSpace *ofespace_) :
-    Operator(ofespace_->GetGlobalDofs(),
-             ofespace_->GetGlobalDofs()) {
+    Operator(ofespace_->GetVSize(),
+             ofespace_->GetVSize()) {
     Init(device, ofespace_, ofespace_);
   }
 
   OccaBilinearForm::OccaBilinearForm(OccaFiniteElementSpace *otrialFespace_,
                                      OccaFiniteElementSpace *otestFespace_) :
-    Operator(otrialFespace_->GetGlobalDofs(),
-             otestFespace_->GetGlobalDofs()) {
+    Operator(otrialFespace_->GetVSize(),
+             otestFespace_->GetVSize()) {
     Init(occa::getDevice(), otrialFespace_, otestFespace_);
   }
 
   OccaBilinearForm::OccaBilinearForm(occa::device device_,
                                      OccaFiniteElementSpace *otrialFespace_,
                                      OccaFiniteElementSpace *otestFespace_) :
-    Operator(otrialFespace_->GetGlobalDofs(),
-             otestFespace_->GetGlobalDofs()) {
+    Operator(otrialFespace_->GetVSize(),
+             otestFespace_->GetVSize()) {
     Init(device, otrialFespace_, otestFespace_);
   }
 
@@ -296,7 +296,15 @@ namespace mfem {
 
   // Matrix transpose vector multiplication.
   void OccaBilinearForm::MultTranspose(const OccaVector &x, OccaVector &y) const {
-    mfem_error("occa::OccaBilinearForm::MultTranspose() is not overloaded!");
+    otestFespace->GlobalToLocal(x, localX);
+    localY = 0;
+
+    const int integratorCount = (int) integrators.size();
+    for (int i = 0; i < integratorCount; ++i) {
+      integrators[i]->MultTransposeAdd(localX, localY);
+    }
+
+    otrialFespace->LocalToGlobal(localY, y);
   }
 
 

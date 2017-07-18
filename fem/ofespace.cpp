@@ -182,6 +182,34 @@ namespace mfem {
     return vdim;
   }
 
+  int OccaFiniteElementSpace::GetVSize() const {
+    return globalDofs * vdim;
+  }
+
+  int OccaFiniteElementSpace::GetTrueVSize() const {
+    return fespace->GetTrueVSize();
+  }
+
+  int OccaFiniteElementSpace::GetGlobalVSize() const {
+#ifdef MFEM_USE_MPI
+    ParFiniteElementSpace *pfespace = dynamic_cast<ParFiniteElementSpace*>(fespace);
+    if (pfespace) {
+      return pfespace->GlobalVSize();
+    }
+#endif
+    return globalDofs * vdim;
+  }
+
+  int OccaFiniteElementSpace::GetGlobalTrueVSize() const {
+#ifdef MFEM_USE_MPI
+    ParFiniteElementSpace *pfespace = dynamic_cast<ParFiniteElementSpace*>(fespace);
+    if (pfespace) {
+      return pfespace->GlobalTrueVSize();
+    }
+#endif
+    return fespace->GetTrueVSize();
+  }
+
   const int* OccaFiniteElementSpace::GetElementDofMap() const {
     return elementDofMap;
   }

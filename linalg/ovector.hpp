@@ -239,7 +239,7 @@ namespace mfem
     /// Compute the Euclidean distance to another vector.
     double DistanceTo(const OccaVector &other) const;
 
-    // int CheckFinite() const;
+    int CheckFinite() const;
 
     inline virtual ~OccaVector() {}
   };

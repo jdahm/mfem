@@ -26,19 +26,19 @@ namespace mfem {
     const FiniteElementSpace &fespace = integ.GetTrialFESpace();
     const FiniteElement &fe = *(fespace.GetFE(0));
     const int dim = fe.GetDim();
+    const int vdim = fespace.GetVDim();
 
     std::stringstream ss;
     ss << occa::hash(device)
        << "FEColl : " << fespace.FEColl()->Name()
        << "Quad: "    << numQuad
-       << "Dim: "     << dim;
+       << "Dim: "     << dim
+       << "VDim: "    << vdim;
     std::string hash = ss.str();
-
-    // DofToQuad
-    OccaDofQuadMaps &maps = integ.GetDofQuadMaps();
 
     // Kernel defines
     occa::properties props;
+    props["defines/NUM_VDIM"] = vdim;
     integ.SetupProperties(props);
 
     occa::kernel kernel = gridFunctionKernels[hash];
@@ -56,13 +56,19 @@ namespace mfem {
     sequence(0) {}
 
   OccaGridFunction::OccaGridFunction(OccaFiniteElementSpace *ofespace_) :
-    OccaVector(ofespace_->GetGlobalDofs()),
+    OccaVector(ofespace_->GetVSize()),
     ofespace(ofespace_),
     sequence(0) {}
 
   OccaGridFunction::OccaGridFunction(occa::device device_,
                                      OccaFiniteElementSpace *ofespace_) :
-    OccaVector(device_, ofespace_->GetGlobalDofs()),
+    OccaVector(device_, ofespace_->GetVSize()),
+    ofespace(ofespace_),
+    sequence(0) {}
+
+  OccaGridFunction::OccaGridFunction(OccaFiniteElementSpace *ofespace_,
+                                     OccaVectorRef ref) :
+    OccaVector(ref),
     ofespace(ofespace_),
     sequence(0) {}
 
@@ -75,13 +81,27 @@ namespace mfem {
     OccaVector::operator = (value);
     return *this;
   }
+
   OccaGridFunction& OccaGridFunction::operator = (const OccaVector &v) {
     OccaVector::operator = (v);
     return *this;
   }
+
+  OccaGridFunction& OccaGridFunction::operator = (const OccaVectorRef &v) {
+    OccaVector::operator = (v);
+    return *this;
+  }
+
   OccaGridFunction& OccaGridFunction::operator = (const OccaGridFunction &v) {
     OccaVector::operator = (v);
     return *this;
+  }
+
+  void OccaGridFunction::SetGridFunction(GridFunction &gf) {
+    Vector v = *this;
+    gf.MakeRef(ofespace->GetFESpace(), v, 0);
+    // Make gf the owner of the data
+    v.Swap(gf);
   }
 
   void OccaGridFunction::GetTrueDofs(OccaVector &v) const {
@@ -104,6 +124,14 @@ namespace mfem {
     }
   }
 
+  FiniteElementSpace* OccaGridFunction::GetFESpace() {
+    return ofespace->GetFESpace();
+  }
+
+  const FiniteElementSpace* OccaGridFunction::GetFESpace() const {
+    return ofespace->GetFESpace();
+  }
+
   void OccaGridFunction::ToQuad(OccaIntegrator &integ,
                                 OccaVector &quadValues) {
 
@@ -114,7 +142,6 @@ namespace mfem {
     const FiniteElementSpace &fespace = integ.GetTrialFESpace();
     const FiniteElement &fe = *(fespace.GetFE(0));
 
-    const int dim      = fe.GetDim();
     const int elements = fespace.GetNE();
     const int numQuad  = integ.GetIntegrationRule().GetNPoints();
     quadValues.SetSize(device,
