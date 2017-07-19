@@ -41,25 +41,53 @@ using namespace std;
 namespace mfem
 {
 
-double SundialsODELinearSolver::GetTimeStep(void *sundials_mem)
+static double getTimeStep(void *sundials_mem, int type)
 {
-   return (type == CVODE) ?
+   return (type == SundialsODELinearSolver::CVODE) ?
           ((CVodeMem)sundials_mem)->cv_gamma :
           ((ARKodeMem)sundials_mem)->ark_gamma;
 }
 
-TimeDependentOperator *
-SundialsODELinearSolver::GetTimeDependentOperator(void *sundials_mem)
+static TimeDependentOperator * getTimeDependentOperator(void *sundials_mem, int type)
 {
-   void *user_data = (type == CVODE) ?
+   void *user_data = (type == SundialsODELinearSolver::CVODE) ?
                      ((CVodeMem)sundials_mem)->cv_user_data :
                      ((ARKodeMem)sundials_mem)->ark_user_data;
    return (TimeDependentOperator *)user_data;
 }
 
+double SundialsODELinearSolver::GetTimeStep(void *sundials_mem)
+{
+  return getTimeStep(sundials_mem, type);
+}
+
+TimeDependentOperator *
+SundialsODELinearSolver::GetTimeDependentOperator(void *sundials_mem)
+{
+  return getTimeDependentOperator(sundials_mem, type);
+}
+
+#ifdef MFEM_USE_OCCA
+double OccaSundialsODELinearSolver::GetTimeStep(void *sundials_mem)
+{
+  return getTimeStep(sundials_mem, type);
+}
+
+TimeDependentOperator *
+OccaSundialsODELinearSolver::GetTimeDependentOperator(void *sundials_mem)
+{
+  return getTimeDependentOperator(sundials_mem, type);
+}
+#endif
+
 static inline SundialsODELinearSolver *to_solver(void *ptr)
 {
    return static_cast<SundialsODELinearSolver *>(ptr);
+}
+
+static inline OccaSundialsODELinearSolver *to_osolver(void *ptr)
+{
+   return static_cast<OccaSundialsODELinearSolver *>(ptr);
 }
 
 static int cvLinSysInit(CVodeMem cv_mem)
@@ -67,20 +95,41 @@ static int cvLinSysInit(CVodeMem cv_mem)
    return to_solver(cv_mem->cv_lmem)->InitSystem(cv_mem);
 }
 
+static int occaCvLinSysInit(CVodeMem cv_mem)
+{
+   return to_osolver(cv_mem->cv_lmem)->InitSystem(cv_mem);
+}
+
 static int cvLinSysSetup(CVodeMem cv_mem, int convfail,
                          N_Vector ypred, N_Vector fpred, booleantype *jcurPtr,
                          N_Vector vtemp1, N_Vector vtemp2, N_Vector vtemp3)
 {
-   Vector yp(ypred), fp(fpred), vt1(vtemp1), vt2(vtemp2), vt3(vtemp3);
-   return to_solver(cv_mem->cv_lmem)->SetupSystem(cv_mem, convfail, yp, fp,
-                                                  *jcurPtr, vt1, vt2, vt3);
+  Vector yp(ypred), fp(fpred), vt1(vtemp1), vt2(vtemp2), vt3(vtemp3);
+  return to_solver(cv_mem->cv_lmem)->SetupSystem(cv_mem, convfail, yp, fp,
+                                                 *jcurPtr, vt1, vt2, vt3);
+}
+
+static int occaCvLinSysSetup(CVodeMem cv_mem, int convfail,
+                             N_Vector ypred, N_Vector fpred, booleantype *jcurPtr,
+                             N_Vector vtemp1, N_Vector vtemp2, N_Vector vtemp3)
+{
+  OccaVector yp(ypred), fp(fpred), vt1(vtemp1), vt2(vtemp2), vt3(vtemp3);
+  return to_osolver(cv_mem->cv_lmem)->SetupSystem(cv_mem, convfail, yp, fp,
+                                                 *jcurPtr, vt1, vt2, vt3);
 }
 
 static int cvLinSysSolve(CVodeMem cv_mem, N_Vector b, N_Vector weight,
                          N_Vector ycur, N_Vector fcur)
 {
-   Vector bb(b), w(weight), yc(ycur), fc(fcur);
-   return to_solver(cv_mem->cv_lmem)->SolveSystem(cv_mem, bb, w, yc, fc);
+  Vector bb(b), w(weight), yc(ycur), fc(fcur);
+  return to_solver(cv_mem->cv_lmem)->SolveSystem(cv_mem, bb, w, yc, fc);
+}
+
+static int occaCvLinSysSolve(CVodeMem cv_mem, N_Vector b, N_Vector weight,
+                             N_Vector ycur, N_Vector fcur)
+{
+  OccaVector bb(b), w(weight), yc(ycur), fc(fcur);
+  return to_osolver(cv_mem->cv_lmem)->SolveSystem(cv_mem, bb, w, yc, fc);
 }
 
 static int cvLinSysFree(CVodeMem cv_mem)
@@ -88,30 +137,61 @@ static int cvLinSysFree(CVodeMem cv_mem)
    return to_solver(cv_mem->cv_lmem)->FreeSystem(cv_mem);
 }
 
+static int occaCvLinSysFree(CVodeMem cv_mem)
+{
+   return to_osolver(cv_mem->cv_lmem)->FreeSystem(cv_mem);
+}
+
 static int arkLinSysInit(ARKodeMem ark_mem)
 {
    return to_solver(ark_mem->ark_lmem)->InitSystem(ark_mem);
+}
+
+static int occaArkLinSysInit(ARKodeMem ark_mem)
+{
+   return to_osolver(ark_mem->ark_lmem)->InitSystem(ark_mem);
 }
 
 static int arkLinSysSetup(ARKodeMem ark_mem, int convfail,
                           N_Vector ypred, N_Vector fpred, booleantype *jcurPtr,
                           N_Vector vtemp1, N_Vector vtemp2, N_Vector vtemp3)
 {
-   Vector yp(ypred), fp(fpred), vt1(vtemp1), vt2(vtemp2), vt3(vtemp3);
-   return to_solver(ark_mem->ark_lmem)->SetupSystem(ark_mem, convfail, yp, fp,
-                                                    *jcurPtr, vt1, vt2, vt3);
+  Vector yp(ypred), fp(fpred), vt1(vtemp1), vt2(vtemp2), vt3(vtemp3);
+  return to_solver(ark_mem->ark_lmem)->SetupSystem(ark_mem, convfail, yp, fp,
+                                                   *jcurPtr, vt1, vt2, vt3);
+}
+
+static int occaArkLinSysSetup(ARKodeMem ark_mem, int convfail,
+                              N_Vector ypred, N_Vector fpred, booleantype *jcurPtr,
+                              N_Vector vtemp1, N_Vector vtemp2, N_Vector vtemp3)
+{
+  OccaVector yp(ypred), fp(fpred), vt1(vtemp1), vt2(vtemp2), vt3(vtemp3);
+  return to_osolver(ark_mem->ark_lmem)->SetupSystem(ark_mem, convfail, yp, fp,
+                                                   *jcurPtr, vt1, vt2, vt3);
 }
 
 static int arkLinSysSolve(ARKodeMem ark_mem, N_Vector b, N_Vector weight,
                           N_Vector ycur, N_Vector fcur)
 {
-   Vector bb(b), w(weight), yc(ycur), fc(fcur);
-   return to_solver(ark_mem->ark_lmem)->SolveSystem(ark_mem, bb, w, yc, fc);
+  Vector bb(b), w(weight), yc(ycur), fc(fcur);
+  return to_solver(ark_mem->ark_lmem)->SolveSystem(ark_mem, bb, w, yc, fc);
+}
+
+static int occaArkLinSysSolve(ARKodeMem ark_mem, N_Vector b, N_Vector weight,
+                          N_Vector ycur, N_Vector fcur)
+{
+  OccaVector bb(b), w(weight), yc(ycur), fc(fcur);
+  return to_osolver(ark_mem->ark_lmem)->SolveSystem(ark_mem, bb, w, yc, fc);
 }
 
 static int arkLinSysFree(ARKodeMem ark_mem)
 {
    return to_solver(ark_mem->ark_lmem)->FreeSystem(ark_mem);
+}
+
+static int occaArkLinSysFree(ARKodeMem ark_mem)
+{
+   return to_osolver(ark_mem->ark_lmem)->FreeSystem(ark_mem);
 }
 
 // TODO: The vectorType hack can be removed when merging
@@ -148,7 +228,7 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
 
 N_Vector SundialsSolver::CreateVector(long int length) const
 {
-   N_Vector nv;
+   N_Vector nv = NULL;
 
    /* Temporarily convoluted check */
 #ifdef MFEM_USE_OCCA
@@ -424,6 +504,27 @@ void CVODESolver::SetLinearSolver(SundialsODELinearSolver &ls_spec)
    ls_spec.type = SundialsODELinearSolver::CVODE;
 }
 
+#ifdef MFEM_USE_OCCA
+void CVODESolver::SetLinearSolver(OccaSundialsODELinearSolver &ls_spec)
+{
+   CVodeMem mem = Mem(this);
+   MFEM_ASSERT(mem->cv_iter == CV_NEWTON,
+               "The function is applicable only to CV_NEWTON iteration type.");
+
+   if (mem->cv_lfree != NULL) { (mem->cv_lfree)(mem); }
+
+   // Set the linear solver function fields in mem.
+   // Note that {linit,lsetup,lfree} can be NULL.
+   mem->cv_linit  = occaCvLinSysInit;
+   mem->cv_lsetup = occaCvLinSysSetup;
+   mem->cv_lsolve = occaCvLinSysSolve;
+   mem->cv_lfree  = occaCvLinSysFree;
+   mem->cv_lmem   = &ls_spec;
+   mem->cv_setupNonNull = TRUE;
+   ls_spec.type = OccaSundialsODELinearSolver::CVODE;
+}
+#endif
+
 void CVODESolver::SetStepMode(int itask)
 {
    Mem(this)->cv_taskc = itask;
@@ -600,6 +701,29 @@ void ARKODESolver::SetLinearSolver(SundialsODELinearSolver &ls_spec)
    mem->ark_setupNonNull = TRUE;
    ls_spec.type = SundialsODELinearSolver::ARKODE;
 }
+
+#ifdef MFEM_USE_OCCA
+void ARKODESolver::SetLinearSolver(OccaSundialsODELinearSolver &ls_spec)
+{
+   ARKodeMem mem = Mem(this);
+   MFEM_VERIFY(use_implicit,
+               "The function is applicable only to implicit time integration.");
+
+   if (mem->ark_lfree != NULL) { mem->ark_lfree(mem); }
+
+   // Tell ARKODE that the Jacobian inversion is custom.
+   mem->ark_lsolve_type = 4;
+   // Set the linear solver function fields in mem.
+   // Note that {linit,lsetup,lfree} can be NULL.
+   mem->ark_linit  = occaArkLinSysInit;
+   mem->ark_lsetup = occaArkLinSysSetup;
+   mem->ark_lsolve = occaArkLinSysSolve;
+   mem->ark_lfree  = occaArkLinSysFree;
+   mem->ark_lmem   = &ls_spec;
+   mem->ark_setupNonNull = TRUE;
+   ls_spec.type = OccaSundialsODELinearSolver::ARKODE;
+}
+#endif
 
 void ARKODESolver::SetStepMode(int itask)
 {
@@ -998,5 +1122,6 @@ KinSolver::~KinSolver()
 }
 
 } // namespace mfem
+
 
 #endif

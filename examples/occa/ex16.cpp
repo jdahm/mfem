@@ -123,7 +123,7 @@ public:
 
   /** Solve the system (M + dt K) y = M b. The result y replaces the input b.
       This method is used by the implicit SUNDIALS solvers. */
-  void SundialsSolve(const double dt, Vector &b);
+  void SundialsSolve(const double dt, OccaVector &b);
 
   /// Update the diffusion BilinearForm K using the given true-dof vector `u`.
   void SetParameters(const OccaVector &u);
@@ -141,7 +141,7 @@ public:
         (M + γK) y = M b,
 
     for given b, u (not used), and γ = GetTimeStep(). */
-class SundialsJacSolver : public SundialsODELinearSolver
+class SundialsJacSolver : public OccaSundialsODELinearSolver
 {
 private:
   ConductionOperator *oper;
@@ -151,10 +151,10 @@ public:
 
    int InitSystem(void *sundials_mem);
    int SetupSystem(void *sundials_mem, int conv_fail,
-                   const Vector &y_pred, const Vector &f_pred, int &jac_cur,
-                   Vector &v_temp1, Vector &v_temp2, Vector &v_temp3);
-   int SolveSystem(void *sundials_mem, Vector &b, const Vector &weight,
-                   const Vector &y_cur, const Vector &f_cur);
+                   const OccaVector &y_pred, const OccaVector &f_pred, int &jac_cur,
+                   OccaVector &v_temp1, OccaVector &v_temp2, OccaVector &v_temp3);
+   int SolveSystem(void *sundials_mem, OccaVector &b, const OccaVector &weight,
+                   const OccaVector &y_cur, const OccaVector &f_cur);
    int FreeSystem(void *sundials_mem);
 };
 
@@ -171,6 +171,9 @@ int main(int argc, char *argv[])
    double dt = 1.0e-2;
    double alpha = 1.0e-2;
    double kappa = 0.5;
+   const char *device_info = "mode: 'Serial'";
+   bool occa_verbose = false;
+   bool use_acrotensor = false;
    bool visualization = true;
    bool visit = false;
    int vis_steps = 5;
@@ -203,6 +206,16 @@ int main(int argc, char *argv[])
                   "Alpha coefficient.");
    args.AddOption(&kappa, "-k", "--kappa",
                   "Kappa coefficient offset.");
+   args.AddOption(&device_info, "-d", "--device-info",
+                  "Device information to run example on (default: \"mode: 'Serial'\").");
+   args.AddOption(&occa_verbose,
+                  "-ov", "--occa-verbose",
+                  "--no-ov", "--no-occa-verbose",
+                  "Print verbose information about OCCA kernel compilation.");
+   args.AddOption(&use_acrotensor,
+                  "-ac", "--use-acro",
+                  "--no-ac", "--no-acro",
+                  "Use Acrotensor.");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -311,8 +324,6 @@ int main(int argc, char *argv[])
    int fe_size = fespace.GetTrueVSize();
    cout << "Number of temperature unknowns: " << fe_size << endl;
 
-   GridFunction u_gf(&fespace);
-
    // 6. Set the initial conditions for u. All boundaries are considered
    //    natural.
    FunctionCoefficient u_0(InitialTemperature);
@@ -335,11 +346,12 @@ int main(int argc, char *argv[])
       mesh->Print(omesh);
       ofstream osol("ex16-init.gf");
       osol.precision(precision);
-      u_gf.Save(osol);
+      u_f = u_gf;
+      u_f.Save(osol);
    }
 
    VisItDataCollection visit_dc("Example16", mesh);
-   visit_dc.RegisterField("temperature", &u_gf);
+   visit_dc.RegisterField("temperature", &u_f);
    if (visit)
    {
       visit_dc.SetCycle(0);
@@ -363,7 +375,7 @@ int main(int argc, char *argv[])
       else
       {
          sout.precision(precision);
-         sout << "solution\n" << *mesh << u_gf;
+         sout << "solution\n" << *mesh << u_f;
          sout << "pause\n";
          sout << flush;
          cout << "GLVis visualization paused."
@@ -402,11 +414,15 @@ int main(int argc, char *argv[])
          u_gf.SetFromTrueDofs(u);
          if (visualization)
          {
+            // Perform a copy back to the host
+            u_f = u_gf;
             sout << "solution\n" << *mesh << u_f << flush;
          }
 
          if (visit)
          {
+            // Perform a copy back to the host
+            u_f = u_gf;
             visit_dc.SetCycle(ti);
             visit_dc.SetTime(t);
             visit_dc.Save();
@@ -422,7 +438,8 @@ int main(int argc, char *argv[])
    {
       ofstream osol("ex16-final.gf");
       osol.precision(precision);
-      u_gf.Save(osol);
+      u_f = u_gf;
+      u_f.Save(osol);
    }
 
    // 10. Free the used memory.
@@ -503,6 +520,20 @@ void ConductionOperator::ImplicitSolve(const double dt,
   T_solver.Mult(z, du_dt);
 }
 
+void ConductionOperator::SundialsSolve(const double dt, OccaVector &b)
+{
+   // Solve the system (M + dt K) y = M b. The result y replaces the input b.
+   if (!T || dt != current_dt)
+   {
+      delete T;
+      T = new GradientUpdate(Moper, Koper, dt);
+      current_dt = dt;
+      T_solver.SetOperator(*T);
+   }
+   Moper->Mult(b, z);
+   T_solver.Mult(z, b);
+}
+
 void ConductionOperator::SetParameters(const OccaVector &u) {
   delete K;
 
@@ -551,18 +582,18 @@ int SundialsJacSolver::InitSystem(void *sundials_mem)
 }
 
 int SundialsJacSolver::SetupSystem(void *sundials_mem, int conv_fail,
-                                   const Vector &y_pred, const Vector &f_pred,
-                                   int &jac_cur, Vector &v_temp1,
-                                   Vector &v_temp2, Vector &v_temp3)
+                                   const OccaVector &y_pred, const OccaVector &f_pred,
+                                   int &jac_cur, OccaVector &v_temp1,
+                                   OccaVector &v_temp2, OccaVector &v_temp3)
 {
    jac_cur = 1;
 
    return 0;
 }
 
-int SundialsJacSolver::SolveSystem(void *sundials_mem, Vector &b,
-                                   const Vector &weight, const Vector &y_cur,
-                                   const Vector &f_cur)
+int SundialsJacSolver::SolveSystem(void *sundials_mem, OccaVector &b,
+                                   const OccaVector &weight, const OccaVector &y_cur,
+                                   const OccaVector &f_cur)
 {
    oper->SundialsSolve(GetTimeStep(sundials_mem), b);
 

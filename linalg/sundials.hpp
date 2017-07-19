@@ -112,6 +112,44 @@ public:
    ///@}
 };
 
+#ifdef MFEM_USE_OCCA
+class OccaSundialsODELinearSolver
+{
+public:
+   enum {CVODE, ARKODE} type; ///< Is CVODE or ARKODE using this object?
+
+protected:
+   OccaSundialsODELinearSolver() { }
+   virtual ~OccaSundialsODELinearSolver() { }
+
+   /// Get the current scaled time step, gamma, from @a sundials_mem.
+   double GetTimeStep(void *sundials_mem);
+   /// Get the TimeDependentOperator associated with @a sundials_mem.
+   TimeDependentOperator *GetTimeDependentOperator(void *sundials_mem);
+
+public:
+   /** @name Linear solver interface methods.
+       These four functions and their parameters are documented in Section 7 of
+       http://computation.llnl.gov/sites/default/files/public/cv_guide.pdf
+       and Section 7.4 of
+       http://computation.llnl.gov/sites/default/files/public/ark_guide.pdf
+
+       The first argument, @a sundials_mem, is one of the pointer types,
+       CVodeMem or ARKodeMem, depending on the value of the data member @a type.
+   */
+   ///@{
+   virtual int InitSystem(void *sundials_mem) = 0;
+   virtual int SetupSystem(void *sundials_mem, int conv_fail,
+                           const OccaVector &y_pred, const OccaVector &f_pred,
+                           int &jac_cur, OccaVector &v_temp1,
+                           OccaVector &v_temp2, OccaVector &v_temp3) = 0;
+   virtual int SolveSystem(void *sundials_mem, OccaVector &b, const OccaVector &weight,
+                           const OccaVector &y_cur, const OccaVector &f_cur) = 0;
+   virtual int FreeSystem(void *sundials_mem) = 0;
+   ///@}
+};
+#endif
+
 
 /// A base class for the MFEM classes wrapping SUNDIALS' solvers.
 /** This class defines some common data and functions used by the SUNDIALS
@@ -204,6 +242,9 @@ public:
    /// Set a custom Jacobian system solver for the CV_NEWTON option usually used
    /// with implicit CV_BDF.
    void SetLinearSolver(SundialsODELinearSolver &ls_spec);
+#ifdef MFEM_USE_OCCA
+   void SetLinearSolver(OccaSundialsODELinearSolver &ls_spec);
+#endif
 
    /** @brief CVode supports two modes, specified by itask: CV_NORMAL (default)
        and CV_ONE_STEP. */
@@ -321,6 +362,9 @@ public:
 
    /// Set a custom Jacobian system solver for implicit methods.
    void SetLinearSolver(SundialsODELinearSolver &ls_spec);
+#ifdef MFEM_USE_OCCA
+   void SetLinearSolver(OccaSundialsODELinearSolver &ls_spec);
+#endif
 
    /** @brief ARKode supports two modes, specified by itask: ARK_NORMAL
        (default) and ARK_ONE_STEP. */
