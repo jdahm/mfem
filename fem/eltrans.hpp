@@ -72,11 +72,11 @@ public:
    const DenseMatrix &InverseJacobian()
    { return (EvalState & INVERSE_MASK) ? invJ : EvalInverseJ(); }
 
-   virtual int Order() = 0;
-   virtual int OrderJ() = 0;
-   virtual int OrderW() = 0;
+   virtual int Order() const = 0;
+   virtual int OrderJ() const = 0;
+   virtual int OrderW() const = 0;
    /// order of adj(J)^t.grad(fi)
-   virtual int OrderGrad(const FiniteElement *fe) = 0;
+   virtual int OrderGrad(const FiniteElement *fe) const = 0;
 
    /** Get dimension of target space (we support 2D meshes embedded in 3D; in
        this case the function should return "3"). */
@@ -127,10 +127,10 @@ public:
    virtual void Transform(const IntegrationRule &, DenseMatrix &);
    virtual void Transform(const DenseMatrix &matrix, DenseMatrix &result);
 
-   virtual int Order() { return FElem->GetOrder(); }
-   virtual int OrderJ();
-   virtual int OrderW();
-   virtual int OrderGrad(const FiniteElement *fe);
+   virtual int Order() const { return FElem->GetOrder(); }
+   virtual int OrderJ() const;
+   virtual int OrderW() const;
+   virtual int OrderGrad(const FiniteElement *fe) const;
 
    virtual int GetSpaceDim()
    {

@@ -34,5 +34,7 @@
 #if USING_TENSOR_OPS
 #  if OCCA_USING_CPU
 #    include "occa://mfem/fem/vmass/tensor/cpu.okl"
+#  else
+#    include "occa://mfem/fem/vmass/tensor/gpuHighOrder.okl"
 #  endif
 #endif

@@ -92,7 +92,7 @@ const DenseMatrix &IsoparametricTransformation::EvalJacobian()
    return dFdx;
 }
 
-int IsoparametricTransformation::OrderJ()
+int IsoparametricTransformation::OrderJ() const
 {
    switch (FElem->Space())
    {
@@ -106,7 +106,7 @@ int IsoparametricTransformation::OrderJ()
    return 0;
 }
 
-int IsoparametricTransformation::OrderW()
+int IsoparametricTransformation::OrderW() const
 {
    switch (FElem->Space())
    {
@@ -120,7 +120,7 @@ int IsoparametricTransformation::OrderW()
    return 0;
 }
 
-int IsoparametricTransformation::OrderGrad(const FiniteElement *fe)
+int IsoparametricTransformation::OrderGrad(const FiniteElement *fe) const
 {
    if (FElem->Space() == fe->Space())
    {
