@@ -1,19 +1,20 @@
 //                                MFEM Example 16
+//                             SUNDIALS Modification
 //
 // Compile with: make ex16
 //
 // Sample runs:  ex16
-//               ex16 -m ../data/inline-tri.mesh
-//               ex16 -m ../data/disc-nurbs.mesh -tf 2
-//               ex16 -s 1 -a 0.0 -k 1.0
-//               ex16 -s 2 -a 1.0 -k 0.0
-//               ex16 -s 3 -a 0.5 -k 0.5 -o 4
-//               ex16 -s 14 -dt 1.0e-4 -tf 4.0e-2 -vs 40
-//               ex16 -m ../data/fichera-q2.mesh
-//               ex16 -m ../data/escher.mesh
-//               ex16 -m ../data/beam-tet.mesh -tf 10 -dt 0.1
-//               ex16 -m ../data/amr-quad.mesh -o 4 -r 0
-//               ex16 -m ../data/amr-hex.mesh -o 2 -r 0
+//               ex16 -m ../../data/inline-tri.mesh
+//               ex16 -m ../../data/disc-nurbs.mesh -tf 2
+//               ex16 -s 12 -a 0.0 -k 1.0
+//               ex16 -s 1 -a 1.0 -k 0.0 -dt 1e-4 -tf 5e-2 -vs 25
+//               ex16 -s 2 -a 0.5 -k 0.5 -o 4 -dt 1e-4 -tf 2e-2 -vs 25
+//               ex16 -s 3 -dt 1.0e-4 -tf 4.0e-2 -vs 40
+//               ex16 -m ../../data/fichera-q2.mesh
+//               ex16 -m ../../data/escher.mesh
+//               ex16 -m ../../data/beam-tet.mesh -tf 10 -dt 0.1
+//               ex16 -m ../../data/amr-quad.mesh -o 4 -r 0
+//               ex16 -m ../../data/amr-hex.mesh -o 2 -r 0
 //
 // Description:  This example solves a time dependent nonlinear heat equation
 //               problem of the form du/dt = C(u), with a non-linear diffusion
@@ -23,7 +24,8 @@
 //               class ConductionOperator defining C(u)), as well as their
 //               implicit time integration. Note that implementing the method
 //               ConductionOperator::ImplicitSolve is the only requirement for
-//               high-order implicit (SDIRK) time integration.
+//               high-order implicit (SDIRK) time integration. By default, this
+//               example uses the SUNDIALS ODE solvers from CVODE and ARKODE.
 //
 //               We recommend viewing examples 2, 9 and 10 before viewing this
 //               example.
@@ -72,6 +74,7 @@ public:
   }
 };
 
+
 /** After spatial discretization, the conduction model can be written as:
  *
  *     du/dt = M^{-1}(-Ku)
@@ -118,255 +121,317 @@ public:
       This is the only requirement for high-order SDIRK implicit integration.*/
   virtual void ImplicitSolve(const double dt, const OccaVector &u, OccaVector &k);
 
+  /** Solve the system (M + dt K) y = M b. The result y replaces the input b.
+      This method is used by the implicit SUNDIALS solvers. */
+  void SundialsSolve(const double dt, Vector &b);
+
   /// Update the diffusion BilinearForm K using the given true-dof vector `u`.
   void SetParameters(const OccaVector &u);
 
   virtual ~ConductionOperator();
 };
 
+/// Custom Jacobian system solver for the SUNDIALS time integrators.
+/** For the ODE system represented by ConductionOperator
+
+        M du/dt = -K(u),
+
+    this class facilitates the solution of linear systems of the form
+
+        (M + γK) y = M b,
+
+    for given b, u (not used), and γ = GetTimeStep(). */
+class SundialsJacSolver : public SundialsODELinearSolver
+{
+private:
+  ConductionOperator *oper;
+
+public:
+   SundialsJacSolver() : oper(NULL) { }
+
+   int InitSystem(void *sundials_mem);
+   int SetupSystem(void *sundials_mem, int conv_fail,
+                   const Vector &y_pred, const Vector &f_pred, int &jac_cur,
+                   Vector &v_temp1, Vector &v_temp2, Vector &v_temp3);
+   int SolveSystem(void *sundials_mem, Vector &b, const Vector &weight,
+                   const Vector &y_cur, const Vector &f_cur);
+   int FreeSystem(void *sundials_mem);
+};
+
 double InitialTemperature(const Vector &x);
 
-int main(int argc, char *argv[]) {
-  // 1. Parse command-line options.
-  const char *mesh_file = "../../data/star.mesh";
-  int ref_levels = 2;
-  int order = 2;
-  const char *basis_type = "G"; // Gauss-Lobatto
-  int ode_solver_type = 3;
-  double t_final = 0.5;
-  double dt = 1.0e-2;
-  double alpha = 1.0e-2;
-  double kappa = 0.5;
-  const char *device_info = "mode: 'Serial'";
-  bool occa_verbose = false;
-  bool use_acrotensor = false;
-  bool visualization = true;
-  int vis_steps = 5;
+int main(int argc, char *argv[])
+{
+   // 1. Parse command-line options.
+   const char *mesh_file = "../../data/star.mesh";
+   int ref_levels = 2;
+   int order = 2;
+   int ode_solver_type = 11; // 11 = CVODE implicit
+   double t_final = 0.5;
+   double dt = 1.0e-2;
+   double alpha = 1.0e-2;
+   double kappa = 0.5;
+   bool visualization = true;
+   bool visit = false;
+   int vis_steps = 5;
 
-  int precision = 8;
-  cout.precision(precision);
+   // Relative and absolute tolerances for CVODE and ARKODE.
+   const double reltol = 1e-4, abstol = 1e-4;
 
-  OptionsParser args(argc, argv);
-  args.AddOption(&mesh_file, "-m", "--mesh",
-                 "Mesh file to use.");
-  args.AddOption(&ref_levels, "-r", "--refine",
-                 "Number of times to refine the mesh uniformly.");
-  args.AddOption(&order, "-o", "--order",
-                 "Order (degree) of the finite elements.");
-  args.AddOption(&basis_type, "-b", "--basis-type",
-                 "Basis: G - Gauss-Lobatto, P - Positive, U - Uniform");
-  args.AddOption(&ode_solver_type, "-s", "--ode-solver",
-                 "ODE solver: 1 - Backward Euler, 2 - SDIRK2, 3 - SDIRK3,\n\t"
-                 "\t   11 - Forward Euler, 12 - RK2, 13 - RK3 SSP, 14 - RK4.");
-  args.AddOption(&t_final, "-tf", "--t-final",
-                 "Final time; start time is 0.");
-  args.AddOption(&dt, "-dt", "--time-step",
-                 "Time step.");
-  args.AddOption(&alpha, "-a", "--alpha",
-                 "Alpha coefficient.");
-  args.AddOption(&kappa, "-k", "--kappa",
-                 "Kappa coefficient offset.");
-  args.AddOption(&device_info, "-d", "--device-info",
-                 "Device information to run example on (default: \"mode: 'Serial'\").");
-  args.AddOption(&occa_verbose,
-                 "-ov", "--occa-verbose",
-                 "--no-ov", "--no-occa-verbose",
-                 "Print verbose information about OCCA kernel compilation.");
-  args.AddOption(&use_acrotensor,
-                 "-ac", "--use-acro",
-                 "--no-ac", "--no-acro",
-                 "Use Acrotensor.");
-  args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
-                 "--no-visualization",
-                 "Enable or disable GLVis visualization.");
-  args.AddOption(&vis_steps, "-vs", "--visualization-steps",
-                 "Visualize every n-th timestep.");
-  args.Parse();
-  if (!args.Good()) {
-    args.PrintUsage(cout);
-    return 1;
-  }
-  args.PrintOptions(cout);
+   int precision = 8;
+   cout.precision(precision);
+
+   OptionsParser args(argc, argv);
+   args.AddOption(&mesh_file, "-m", "--mesh",
+                  "Mesh file to use.");
+   args.AddOption(&ref_levels, "-r", "--refine",
+                  "Number of times to refine the mesh uniformly.");
+   args.AddOption(&order, "-o", "--order",
+                  "Order (degree) of the finite elements.");
+   args.AddOption(&ode_solver_type, "-s", "--ode-solver",
+                  "ODE solver:\n"
+                  "\t 1/11 - CVODE (explicit/implicit),\n"
+                  "\t 2/12 - ARKODE (default explicit/implicit),\n"
+                  "\t 3 - ARKODE (Fehlberg-6-4-5)\n"
+                  "\t 4 - Forward Euler, 5 - RK2, 6 - RK3 SSP, 7 - RK4,\n"
+                  "\t 8 - Backward Euler, 9 - SDIRK23, 10 - SDIRK33.");
+   args.AddOption(&t_final, "-tf", "--t-final",
+                  "Final time; start time is 0.");
+   args.AddOption(&dt, "-dt", "--time-step",
+                  "Time step.");
+   args.AddOption(&alpha, "-a", "--alpha",
+                  "Alpha coefficient.");
+   args.AddOption(&kappa, "-k", "--kappa",
+                  "Kappa coefficient offset.");
+   args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
+                  "--no-visualization",
+                  "Enable or disable GLVis visualization.");
+   args.AddOption(&visit, "-visit", "--visit-datafiles", "-no-visit",
+                  "--no-visit-datafiles",
+                  "Save data files for VisIt (visit.llnl.gov) visualization.");
+   args.AddOption(&vis_steps, "-vs", "--visualization-steps",
+                  "Visualize every n-th timestep.");
+   args.Parse();
+   if (!args.Good())
+   {
+      args.PrintUsage(cout);
+      return 1;
+   }
+   args.PrintOptions(cout);
 
 #ifndef MFEM_USE_ACROTENSOR
-  if (use_acrotensor) {
-    cout << "MFEM not compiled with Acrotensor, reverting to OCCA\n";
-    use_acrotensor = false;
-  }
+   if (use_acrotensor) {
+      cout << "MFEM not compiled with Acrotensor, reverting to OCCA\n";
+      use_acrotensor = false;
+   }
 #endif
 
-  // Set the OCCA device to run example in
-  occa::setDevice(device_info);
+   // Set the OCCA device to run example in
+   occa::setDevice(device_info);
 
-  // Load cached kernels
-  occa::loadKernels();
-  occa::loadKernels("mfem");
+   // Load cached kernels
+   occa::loadKernels();
+   occa::loadKernels("mfem");
 
-  // Set as the background device
-  occa::settings()["verboseCompilation"] = occa_verbose;
+   // Set as the background device
+   occa::settings()["verboseCompilation"] = occa_verbose;
 
-  // 2. Read the mesh from the given mesh file. We can handle triangular,
-  //    quadrilateral, tetrahedral and hexahedral meshes with the same code.
-  Mesh *mesh = new Mesh(mesh_file, 1, 1);
-  int dim = mesh->Dimension();
+   // 2. Read the mesh from the given mesh file. We can handle triangular,
+   //    quadrilateral, tetrahedral and hexahedral meshes with the same code.
+   Mesh *mesh = new Mesh(mesh_file, 1, 1);
+   int dim = mesh->Dimension();
 
-  // See class BasisType in fem/fe_coll.hpp for available basis types
-  int basis = BasisType::GetType(basis_type[0]);
-  cout << "Using " << BasisType::Name(basis) << " basis ..." << endl;
+   // 3. Define the ODE solver used for time integration. Several
+   // SUNDIALS solvers are available, as well as included both
+   // explicit and implicit MFEM ODE solvers.
+   ODESolver *ode_solver = NULL;
+   CVODESolver *cvode = NULL;
+   ARKODESolver *arkode = NULL;
+   SundialsJacSolver sun_solver; // Used by the implicit SUNDIALS ode solvers.
+   switch (ode_solver_type)
+   {
+      // SUNDIALS solvers
+      case 1:
+         cvode = new CVODESolver(CV_ADAMS, CV_FUNCTIONAL);
+         cvode->SetSStolerances(reltol, abstol);
+         cvode->SetMaxStep(dt);
+         ode_solver = cvode; break;
+      case 11:
+         cvode = new CVODESolver(CV_BDF, CV_NEWTON);
+         cvode->SetLinearSolver(sun_solver);
+         cvode->SetSStolerances(reltol, abstol);
+         cvode->SetMaxStep(dt);
+         ode_solver = cvode; break;
+      case 2:
+      case 3:
+         arkode = new ARKODESolver(ARKODESolver::EXPLICIT);
+         arkode->SetSStolerances(reltol, abstol);
+         arkode->SetMaxStep(dt);
+         if (ode_solver_type == 3) { arkode->SetERKTableNum(FEHLBERG_13_7_8); }
+         ode_solver = arkode; break;
+      case 12:
+         arkode = new ARKODESolver(ARKODESolver::IMPLICIT);
+         arkode->SetLinearSolver(sun_solver);
+         arkode->SetSStolerances(reltol, abstol);
+         arkode->SetMaxStep(dt);
+         ode_solver = arkode; break;
+      // Other MFEM explicit methods
+      case 4: ode_solver = new ForwardEulerSolver; break;
+      case 5: ode_solver = new RK2Solver(0.5); break; // midpoint method
+      case 6: ode_solver = new RK3SSPSolver; break;
+      case 7: ode_solver = new RK4Solver; break;
+      // MFEM implicit L-stable methods
+      case 8:  ode_solver = new BackwardEulerSolver; break;
+      case 9:  ode_solver = new SDIRK23Solver(2); break;
+      case 10: ode_solver = new SDIRK33Solver; break;
+      default:
+         cout << "Unknown ODE solver type: " << ode_solver_type << '\n';
+         return 3;
+   }
 
-  // 3. Define the ODE solver used for time integration. Several implicit
-  //    singly diagonal implicit Runge-Kutta (SDIRK) methods, as well as
-  //    explicit Runge-Kutta methods are available.
-  ODESolver *ode_solver = NULL;
-  ARKODESolver *arkode  = NULL;
-  CVODESolver *cvode    = NULL;
+   // Since we want to update the diffusion coefficient after every time step,
+   // we need to use the "one-step" mode of the SUNDIALS solvers.
+   if (cvode) { cvode->SetStepMode(CV_ONE_STEP); }
+   if (arkode) { arkode->SetStepMode(ARK_ONE_STEP); }
 
-  // Relative and absolute tolerances for CVODE and ARKODE.
-  const double reltol = 1e-1, abstol = 1e-1;
+   // 4. Refine the mesh to increase the resolution. In this example we do
+   //    'ref_levels' of uniform refinement, where 'ref_levels' is a
+   //    command-line parameter.
+   for (int lev = 0; lev < ref_levels; lev++)
+   {
+      mesh->UniformRefinement();
+   }
 
-  switch (ode_solver_type) {
-    // Implicit L-stable methods
-  case 1:  ode_solver = new OccaBackwardEulerSolver; break;
-  case 2:  ode_solver = new OccaSDIRK23Solver(2); break;
-  case 3:  ode_solver = new OccaSDIRK33Solver; break;
-    // Explicit methods
-  case 11: ode_solver = new OccaForwardEulerSolver; break;
-  case 12: ode_solver = new OccaRK2Solver(0.5); break; // midpoint method
-  case 13: ode_solver = new OccaRK3SSPSolver; break;
-  case 14: ode_solver = new OccaRK4Solver; break;
-    // Implicit A-stable methods (not L-stable)
-  case 22: ode_solver = new OccaImplicitMidpointSolver; break;
-  case 23: ode_solver = new OccaSDIRK23Solver; break;
-  case 24: ode_solver = new OccaSDIRK34Solver; break;
-    // SUNDIALS solvers
-  case 25:
-    cvode = new CVODESolver(CV_ADAMS, CV_FUNCTIONAL);
-    cvode->SetSStolerances(reltol, abstol);
-    cvode->SetMaxStep(dt);
-    ode_solver = cvode; break;
-  case 26:
-  case 27:
-    arkode = new ARKODESolver(ARKODESolver::EXPLICIT);
-    arkode->SetSStolerances(reltol, abstol);
-    arkode->SetMaxStep(dt);
-    if (ode_solver_type == 27) { arkode->SetERKTableNum(FEHLBERG_13_7_8); }
-    ode_solver = arkode; break;
-  default:
-    cout << "Unknown ODE solver type: " << ode_solver_type << '\n';
-    return 3;
-  }
+   // 5. Define the vector finite element space representing the current and the
+   //    initial temperature, u_ref.
+   H1_FECollection fe_coll(order, dim);
+   OccaFiniteElementSpace ofespace(mesh, &fe_coll);
+   FiniteElementSpace &fespace = *(ofespace.GetFESpace());
 
-  // 4. Refine the mesh to increase the resolution. In this example we do
-  //    'ref_levels' of uniform refinement, where 'ref_levels' is a
-  //    command-line parameter.
-  for (int lev = 0; lev < ref_levels; lev++) {
-    mesh->UniformRefinement();
-  }
+   int fe_size = fespace.GetTrueVSize();
+   cout << "Number of temperature unknowns: " << fe_size << endl;
 
-  // 5. Define the vector finite element space representing the current and the
-  //    initial temperature, u_ref.
-  H1_FECollection fe_coll(order, dim, basis);
-  OccaFiniteElementSpace ofespace(mesh, &fe_coll);
-  FiniteElementSpace &fespace = *(ofespace.GetFESpace());
+   GridFunction u_gf(&fespace);
 
-  int fe_size = fespace.GetTrueVSize();
-  cout << "Number of temperature unknowns: " << fe_size << endl;
+   // 6. Set the initial conditions for u. All boundaries are considered
+   //    natural.
+   FunctionCoefficient u_0(InitialTemperature);
+   GridFunction u_f(&fespace);
+   u_f.ProjectCoefficient(u_0);
 
-  // 6. Set the initial conditions for u. All boundaries are considered
-  //    natural.
-  FunctionCoefficient u_0(InitialTemperature);
-  GridFunction u_f(&fespace);
-  u_f.ProjectCoefficient(u_0);
+   OccaGridFunction u_gf(&ofespace);
+   u_gf = u_f;
 
-  OccaGridFunction u_gf(&ofespace);
-  u_gf = u_f;
+   OccaVector u;
+   u_gf.GetTrueDofs(u);
 
-  OccaVector u;
-  u_gf.GetTrueDofs(u);
+   // 7. Initialize the conduction operator and the visualization.
+   ConductionOperator oper(ofespace, alpha, kappa, u, use_acrotensor);
 
-  // 7. Initialize the conduction operator and the visualization.
-  ConductionOperator oper(ofespace, alpha, kappa, u, use_acrotensor);
+   u_gf.SetFromTrueDofs(u);
+   {
+      ofstream omesh("ex16.mesh");
+      omesh.precision(precision);
+      mesh->Print(omesh);
+      ofstream osol("ex16-init.gf");
+      osol.precision(precision);
+      u_gf.Save(osol);
+   }
 
-  u_gf.SetFromTrueDofs(u);
+   VisItDataCollection visit_dc("Example16", mesh);
+   visit_dc.RegisterField("temperature", &u_gf);
+   if (visit)
+   {
+      visit_dc.SetCycle(0);
+      visit_dc.SetTime(0.0);
+      visit_dc.Save();
+   }
 
-  {
-    ofstream omesh("ex16.mesh");
-    omesh.precision(precision);
-    mesh->Print(omesh);
-    ofstream osol("ex16-init.gf");
-    osol.precision(precision);
-    u_f = u_gf;
-    u_f.Save(osol);
-  }
-
-  socketstream sout;
-  if (visualization) {
-    char vishost[] = "localhost";
-    int  visport   = 19916;
-    sout.open(vishost, visport);
-    if (!sout) {
-      cout << "Unable to connect to GLVis server at "
-           << vishost << ':' << visport << endl;
-      visualization = false;
-      cout << "GLVis visualization disabled.\n";
-    } else {
-      sout.precision(precision);
-      sout << "solution\n" << *mesh << u_f;
-      sout << "pause\n";
-      sout << flush;
-      cout << "GLVis visualization paused."
-           << " Press space (in the GLVis window) to resume it.\n";
-    }
-  }
-
-  // 8. Perform time-integration (looping over the time iterations, ti, with a
-  //    time-step dt).
-  ode_solver->Init(oper);
-  double t = 0.0;
-  cout << "Advancing the ODE ...\n" << flush;
-  tic_toc.Clear();
-  tic_toc.Start();
-
-  bool last_step = false;
-  for (int ti = 1; !last_step; ti++) {
-    if (t + dt >= t_final - dt/2) {
-      last_step = true;
-    }
-
-    ode_solver->Step(u, t, dt);
-
-    if (last_step || (ti % vis_steps) == 0) {
-      cout << "step " << ti << ", t = " << t << endl;
-      if (cvode) { cvode->PrintInfo(); }
-      if (arkode) { arkode->PrintInfo(); }
-
-      u_gf.SetFromTrueDofs(u);
-      if (visualization) {
-        // [MISSING] u_gf
-        sout << "solution\n" << *mesh << u_f << flush;
+   socketstream sout;
+   if (visualization)
+   {
+      char vishost[] = "localhost";
+      int  visport   = 19916;
+      sout.open(vishost, visport);
+      if (!sout)
+      {
+         cout << "Unable to connect to GLVis server at "
+              << vishost << ':' << visport << endl;
+         visualization = false;
+         cout << "GLVis visualization disabled.\n";
       }
-    }
-    // Set the parameters for the next timestep
-    oper.SetParameters(u);
-  }
-  tic_toc.Stop();
-  cout << " done, " << tic_toc.RealTime() << "s." << endl;
+      else
+      {
+         sout.precision(precision);
+         sout << "solution\n" << *mesh << u_gf;
+         sout << "pause\n";
+         sout << flush;
+         cout << "GLVis visualization paused."
+              << " Press space (in the GLVis window) to resume it.\n";
+      }
+   }
 
-  // 9. Save the final solution. This output can be viewed later using GLVis:
-  //    "glvis -m ex16.mesh -g ex16-final.gf".
-  {
-    ofstream osol("ex16-final.gf");
-    osol.precision(precision);
-    u_f = u_gf;
-    u_f.Save(osol);
-  }
+   // 8. Perform time-integration (looping over the time iterations, ti, with a
+   //    time-step dt).
+   cout << "Integrating the ODE ..." << endl;
+   tic_toc.Clear();
+   tic_toc.Start();
+   ode_solver->Init(oper);
+   double t = 0.0;
 
-  // 10. Free the used memory.
-  delete ode_solver;
-  delete mesh;
+   bool last_step = false;
+   for (int ti = 1; !last_step; ti++)
+   {
+      double dt_real = min(dt, t_final - t);
 
-  return 0;
+      // Note that since we are using the "one-step" mode of the SUNDIALS
+      // solvers, they will, generally, step over the final time and will not
+      // explicitly perform the interpolation to t_final as they do in the
+      // "normal" step mode.
+
+      ode_solver->Step(u, t, dt_real);
+
+      last_step = (t >= t_final - 1e-8*dt);
+
+      if (last_step || (ti % vis_steps) == 0)
+      {
+         cout << "step " << ti << ", t = " << t << endl;
+         if (cvode) { cvode->PrintInfo(); }
+         if (arkode) { arkode->PrintInfo(); }
+
+         u_gf.SetFromTrueDofs(u);
+         if (visualization)
+         {
+            sout << "solution\n" << *mesh << u_f << flush;
+         }
+
+         if (visit)
+         {
+            visit_dc.SetCycle(ti);
+            visit_dc.SetTime(t);
+            visit_dc.Save();
+         }
+      }
+      oper.SetParameters(u);
+   }
+   tic_toc.Stop();
+   cout << "Done, " << tic_toc.RealTime() << "s." << endl;
+
+   // 9. Save the final solution. This output can be viewed later using GLVis:
+   //    "glvis -m ex16.mesh -g ex16-final.gf".
+   {
+      ofstream osol("ex16-final.gf");
+      osol.precision(precision);
+      u_gf.Save(osol);
+   }
+
+   // 10. Free the used memory.
+   delete ode_solver;
+   delete mesh;
+
+   return 0;
 }
+
 
 ConductionOperator::ConductionOperator(OccaFiniteElementSpace &ofespace_,
                                        double alpha_,
@@ -469,6 +534,46 @@ ConductionOperator::~ConductionOperator() {
   delete M;
   delete K;
 }
+
+
+int SundialsJacSolver::InitSystem(void *sundials_mem)
+{
+   TimeDependentOperator *td_oper = GetTimeDependentOperator(sundials_mem);
+
+   // During development, we use dynamic_cast<> to ensure the setup is correct:
+   oper = dynamic_cast<ConductionOperator*>(td_oper);
+   MFEM_VERIFY(oper, "operator is not ConductionOperator");
+
+   // When the implementation is finalized, we can switch to static_cast<>:
+   // oper = static_cast<ConductionOperator*>(td_oper);
+
+   return 0;
+}
+
+int SundialsJacSolver::SetupSystem(void *sundials_mem, int conv_fail,
+                                   const Vector &y_pred, const Vector &f_pred,
+                                   int &jac_cur, Vector &v_temp1,
+                                   Vector &v_temp2, Vector &v_temp3)
+{
+   jac_cur = 1;
+
+   return 0;
+}
+
+int SundialsJacSolver::SolveSystem(void *sundials_mem, Vector &b,
+                                   const Vector &weight, const Vector &y_cur,
+                                   const Vector &f_cur)
+{
+   oper->SundialsSolve(GetTimeStep(sundials_mem), b);
+
+   return 0;
+}
+
+int SundialsJacSolver::FreeSystem(void *sundials_mem)
+{
+   return 0;
+}
+
 
 double InitialTemperature(const Vector &x)
 {

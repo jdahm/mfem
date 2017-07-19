@@ -1,20 +1,21 @@
-//                                MFEM Example 16
+//                         MFEM Example 16 - Parallel Version
 //                             SUNDIALS Modification
 //
-// Compile with: make ex16
+// Compile with: make ex16p
 //
-// Sample runs:  ex16
-//               ex16 -m ../../data/inline-tri.mesh
-//               ex16 -m ../../data/disc-nurbs.mesh -tf 2
-//               ex16 -s 12 -a 0.0 -k 1.0
-//               ex16 -s 1 -a 1.0 -k 0.0 -dt 1e-4 -tf 5e-2 -vs 25
-//               ex16 -s 2 -a 0.5 -k 0.5 -o 4 -dt 1e-4 -tf 2e-2 -vs 25
-//               ex16 -s 3 -dt 1.0e-4 -tf 4.0e-2 -vs 40
-//               ex16 -m ../../data/fichera-q2.mesh
-//               ex16 -m ../../data/escher.mesh
-//               ex16 -m ../../data/beam-tet.mesh -tf 10 -dt 0.1
-//               ex16 -m ../../data/amr-quad.mesh -o 4 -r 0
-//               ex16 -m ../../data/amr-hex.mesh -o 2 -r 0
+// Sample runs:
+//     mpirun -np 4 ex16p
+//     mpirun -np 4 ex16p -m ../../data/inline-tri.mesh
+//     mpirun -np 4 ex16p -m ../../data/disc-nurbs.mesh -tf 2
+//     mpirun -np 4 ex16p -s 12 -a 0.0 -k 1.0
+//     mpirun -np 4 ex16p -s 1 -a 1.0 -k 0.0 -dt 4e-6 -tf 2e-2 -vs 50
+//     mpirun -np 8 ex16p -s 2 -a 0.5 -k 0.5 -o 4 -dt 8e-6 -tf 2e-2 -vs 50
+//     mpirun -np 4 ex16p -s 3 -dt 2.0e-4 -tf 4.0e-2
+//     mpirun -np 16 ex16p -m ../../data/fichera-q2.mesh
+//     mpirun -np 16 ex16p -m ../../data/escher-p2.mesh
+//     mpirun -np 8 ex16p -m ../../data/beam-tet.mesh -tf 10 -dt 0.1
+//     mpirun -np 4 ex16p -m ../../data/amr-quad.mesh -o 4 -rs 0 -rp 0
+//     mpirun -np 4 ex16p -m ../../data/amr-hex.mesh -o 2 -rs 0 -rp 0
 //
 // Description:  This example solves a time dependent nonlinear heat equation
 //               problem of the form du/dt = C(u), with a non-linear diffusion
@@ -50,28 +51,29 @@ using namespace mfem;
 class ConductionOperator : public TimeDependentOperator
 {
 protected:
-   FiniteElementSpace &fespace;
+   ParFiniteElementSpace &fespace;
    Array<int> ess_tdof_list; // this list remains empty for pure Neumann b.c.
 
-   BilinearForm *M;
-   BilinearForm *K;
+   ParBilinearForm *M;
+   ParBilinearForm *K;
 
-   SparseMatrix Mmat, Kmat;
-   SparseMatrix *T; // T = M + dt K
+   HypreParMatrix Mmat;
+   HypreParMatrix Kmat;
+   HypreParMatrix *T; // T = M + dt K
    double current_dt;
 
-   CGSolver M_solver; // Krylov solver for inverting the mass matrix M
-   DSmoother M_prec;  // Preconditioner for the mass matrix M
+   CGSolver M_solver;    // Krylov solver for inverting the mass matrix M
+   HypreSmoother M_prec; // Preconditioner for the mass matrix M
 
-   CGSolver T_solver; // Implicit solver for T = M + dt K
-   DSmoother T_prec;  // Preconditioner for the implicit solver
+   CGSolver T_solver;    // Implicit solver for T = M + dt K
+   HypreSmoother T_prec; // Preconditioner for the implicit solver
 
    double alpha, kappa;
 
    mutable Vector z; // auxiliary vector
 
 public:
-   ConductionOperator(FiniteElementSpace &f, double alpha, double kappa,
+   ConductionOperator(ParFiniteElementSpace &f, double alpha, double kappa,
                       const Vector &u);
 
    virtual void Mult(const Vector &u, Vector &du_dt) const;
@@ -120,9 +122,16 @@ double InitialTemperature(const Vector &x);
 
 int main(int argc, char *argv[])
 {
-   // 1. Parse command-line options.
+   // 1. Initialize MPI.
+   int num_procs, myid;
+   MPI_Init(&argc, &argv);
+   MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+
+   // 2. Parse command-line options.
    const char *mesh_file = "../../data/star.mesh";
-   int ref_levels = 2;
+   int ser_ref_levels = 2;
+   int par_ref_levels = 1;
    int order = 2;
    int ode_solver_type = 11; // 11 = CVODE implicit
    double t_final = 0.5;
@@ -142,8 +151,10 @@ int main(int argc, char *argv[])
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
                   "Mesh file to use.");
-   args.AddOption(&ref_levels, "-r", "--refine",
-                  "Number of times to refine the mesh uniformly.");
+   args.AddOption(&ser_ref_levels, "-rs", "--refine-serial",
+                  "Number of times to refine the mesh uniformly in serial.");
+   args.AddOption(&par_ref_levels, "-rp", "--refine-parallel",
+                  "Number of times to refine the mesh uniformly in parallel.");
    args.AddOption(&order, "-o", "--order",
                   "Order (degree) of the finite elements.");
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
@@ -173,16 +184,22 @@ int main(int argc, char *argv[])
    if (!args.Good())
    {
       args.PrintUsage(cout);
+      MPI_Finalize();
       return 1;
    }
-   args.PrintOptions(cout);
 
-   // 2. Read the mesh from the given mesh file. We can handle triangular,
-   //    quadrilateral, tetrahedral and hexahedral meshes with the same code.
+   if (myid == 0)
+   {
+      args.PrintOptions(cout);
+   }
+
+   // 3. Read the serial mesh from the given mesh file on all processors. We can
+   //    handle triangular, quadrilateral, tetrahedral and hexahedral meshes
+   //    with the same code.
    Mesh *mesh = new Mesh(mesh_file, 1, 1);
    int dim = mesh->Dimension();
 
-   // 3. Define the ODE solver used for time integration. Several
+   // 4. Define the ODE solver used for time integration. Several
    // SUNDIALS solvers are available, as well as included both
    // explicit and implicit MFEM ODE solvers.
    ODESolver *ode_solver = NULL;
@@ -193,25 +210,25 @@ int main(int argc, char *argv[])
    {
       // SUNDIALS solvers
       case 1:
-         cvode = new CVODESolver(CV_ADAMS, CV_FUNCTIONAL);
+         cvode = new CVODESolver(MPI_COMM_WORLD, CV_ADAMS, CV_FUNCTIONAL);
          cvode->SetSStolerances(reltol, abstol);
          cvode->SetMaxStep(dt);
          ode_solver = cvode; break;
       case 11:
-         cvode = new CVODESolver(CV_BDF, CV_NEWTON);
+         cvode = new CVODESolver(MPI_COMM_WORLD, CV_BDF, CV_NEWTON);
          cvode->SetLinearSolver(sun_solver);
          cvode->SetSStolerances(reltol, abstol);
          cvode->SetMaxStep(dt);
          ode_solver = cvode; break;
       case 2:
       case 3:
-         arkode = new ARKODESolver(ARKODESolver::EXPLICIT);
+         arkode = new ARKODESolver(MPI_COMM_WORLD, ARKODESolver::EXPLICIT);
          arkode->SetSStolerances(reltol, abstol);
          arkode->SetMaxStep(dt);
          if (ode_solver_type == 3) { arkode->SetERKTableNum(FEHLBERG_13_7_8); }
          ode_solver = arkode; break;
       case 12:
-         arkode = new ARKODESolver(ARKODESolver::IMPLICIT);
+         arkode = new ARKODESolver(MPI_COMM_WORLD, ARKODESolver::IMPLICIT);
          arkode->SetLinearSolver(sun_solver);
          arkode->SetSStolerances(reltol, abstol);
          arkode->SetMaxStep(dt);
@@ -235,45 +252,61 @@ int main(int argc, char *argv[])
    if (cvode) { cvode->SetStepMode(CV_ONE_STEP); }
    if (arkode) { arkode->SetStepMode(ARK_ONE_STEP); }
 
-   // 4. Refine the mesh to increase the resolution. In this example we do
-   //    'ref_levels' of uniform refinement, where 'ref_levels' is a
-   //    command-line parameter.
-   for (int lev = 0; lev < ref_levels; lev++)
+   // 5. Refine the mesh in serial to increase the resolution. In this example
+   //    we do 'ser_ref_levels' of uniform refinement, where 'ser_ref_levels' is
+   //    a command-line parameter.
+   for (int lev = 0; lev < ser_ref_levels; lev++)
    {
       mesh->UniformRefinement();
    }
 
-   // 5. Define the vector finite element space representing the current and the
+   // 6. Define a parallel mesh by a partitioning of the serial mesh. Refine
+   //    this mesh further in parallel to increase the resolution. Once the
+   //    parallel mesh is defined, the serial mesh can be deleted.
+   ParMesh *pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
+   delete mesh;
+   for (int lev = 0; lev < par_ref_levels; lev++)
+   {
+      pmesh->UniformRefinement();
+   }
+
+   // 7. Define the vector finite element space representing the current and the
    //    initial temperature, u_ref.
    H1_FECollection fe_coll(order, dim);
-   FiniteElementSpace fespace(mesh, &fe_coll);
+   ParFiniteElementSpace fespace(pmesh, &fe_coll);
 
-   int fe_size = fespace.GetTrueVSize();
-   cout << "Number of temperature unknowns: " << fe_size << endl;
+   int fe_size = fespace.GlobalTrueVSize();
+   if (myid == 0)
+   {
+      cout << "Number of temperature unknowns: " << fe_size << endl;
+   }
 
-   GridFunction u_gf(&fespace);
+   ParGridFunction u_gf(&fespace);
 
-   // 6. Set the initial conditions for u. All boundaries are considered
+   // 8. Set the initial conditions for u. All boundaries are considered
    //    natural.
    FunctionCoefficient u_0(InitialTemperature);
    u_gf.ProjectCoefficient(u_0);
    Vector u;
    u_gf.GetTrueDofs(u);
 
-   // 7. Initialize the conduction operator and the visualization.
+   // 9. Initialize the conduction operator and the VisIt visualization.
    ConductionOperator oper(fespace, alpha, kappa, u);
 
    u_gf.SetFromTrueDofs(u);
    {
-      ofstream omesh("ex16.mesh");
+      ostringstream mesh_name, sol_name;
+      mesh_name << "ex16-mesh." << setfill('0') << setw(6) << myid;
+      sol_name << "ex16-init." << setfill('0') << setw(6) << myid;
+      ofstream omesh(mesh_name.str().c_str());
       omesh.precision(precision);
-      mesh->Print(omesh);
-      ofstream osol("ex16-init.gf");
+      pmesh->Print(omesh);
+      ofstream osol(sol_name.str().c_str());
       osol.precision(precision);
       u_gf.Save(osol);
    }
 
-   VisItDataCollection visit_dc("Example16", mesh);
+   VisItDataCollection visit_dc("Example16-Parallel", pmesh);
    visit_dc.RegisterField("temperature", &u_gf);
    if (visit)
    {
@@ -288,27 +321,40 @@ int main(int argc, char *argv[])
       char vishost[] = "localhost";
       int  visport   = 19916;
       sout.open(vishost, visport);
-      if (!sout)
+      sout << "parallel " << num_procs << " " << myid << endl;
+      int good = sout.good(), all_good;
+      MPI_Allreduce(&good, &all_good, 1, MPI_INT, MPI_MIN, pmesh->GetComm());
+      if (!all_good)
       {
-         cout << "Unable to connect to GLVis server at "
-              << vishost << ':' << visport << endl;
+         sout.close();
          visualization = false;
-         cout << "GLVis visualization disabled.\n";
+         if (myid == 0)
+         {
+            cout << "Unable to connect to GLVis server at "
+                 << vishost << ':' << visport << endl;
+            cout << "GLVis visualization disabled.\n";
+         }
       }
       else
       {
          sout.precision(precision);
-         sout << "solution\n" << *mesh << u_gf;
+         sout << "solution\n" << *pmesh << u_gf;
          sout << "pause\n";
          sout << flush;
-         cout << "GLVis visualization paused."
-              << " Press space (in the GLVis window) to resume it.\n";
+         if (myid == 0)
+         {
+            cout << "GLVis visualization paused."
+                 << " Press space (in the GLVis window) to resume it.\n";
+         }
       }
    }
 
-   // 8. Perform time-integration (looping over the time iterations, ti, with a
-   //    time-step dt).
-   cout << "Integrating the ODE ..." << endl;
+   // 10. Perform time-integration (looping over the time iterations, ti, with a
+   //     time-step dt).
+   if (myid == 0)
+   {
+      cout << "Integrating the ODE ..." << endl;
+   }
    tic_toc.Clear();
    tic_toc.Start();
    ode_solver->Init(oper);
@@ -330,14 +376,18 @@ int main(int argc, char *argv[])
 
       if (last_step || (ti % vis_steps) == 0)
       {
-         cout << "step " << ti << ", t = " << t << endl;
-         if (cvode) { cvode->PrintInfo(); }
-         if (arkode) { arkode->PrintInfo(); }
+         if (myid == 0)
+         {
+            cout << "step " << ti << ", t = " << t << endl;
+            if (cvode) { cvode->PrintInfo(); }
+            if (arkode) { arkode->PrintInfo(); }
+         }
 
          u_gf.SetFromTrueDofs(u);
          if (visualization)
          {
-            sout << "solution\n" << *mesh << u_gf << flush;
+            sout << "parallel " << num_procs << " " << myid << "\n";
+            sout << "solution\n" << *pmesh << u_gf << flush;
          }
 
          if (visit)
@@ -350,40 +400,49 @@ int main(int argc, char *argv[])
       oper.SetParameters(u);
    }
    tic_toc.Stop();
-   cout << "Done, " << tic_toc.RealTime() << "s." << endl;
-
-   // 9. Save the final solution. This output can be viewed later using GLVis:
-   //    "glvis -m ex16.mesh -g ex16-final.gf".
+   if (myid == 0)
    {
-      ofstream osol("ex16-final.gf");
+      cout << "Done, " << tic_toc.RealTime() << "s." << endl;
+   }
+
+   // 11. Save the final solution in parallel. This output can be viewed later
+   //     using GLVis: "glvis -np <np> -m ex16-mesh -g ex16-final".
+   {
+      ostringstream sol_name;
+      sol_name << "ex16-final." << setfill('0') << setw(6) << myid;
+      ofstream osol(sol_name.str().c_str());
       osol.precision(precision);
       u_gf.Save(osol);
    }
 
-   // 10. Free the used memory.
+   // 12. Free the used memory.
    delete ode_solver;
-   delete mesh;
+   delete pmesh;
+
+   MPI_Finalize();
 
    return 0;
 }
 
-ConductionOperator::ConductionOperator(FiniteElementSpace &f, double al,
+ConductionOperator::ConductionOperator(ParFiniteElementSpace &f, double al,
                                        double kap, const Vector &u)
    : TimeDependentOperator(f.GetTrueVSize(), 0.0), fespace(f), M(NULL), K(NULL),
-     T(NULL), current_dt(0.0), z(height)
+     T(NULL), current_dt(0.0),
+     M_solver(f.GetComm()), T_solver(f.GetComm()), z(height)
 {
    const double rel_tol = 1e-8;
 
-   M = new BilinearForm(&fespace);
+   M = new ParBilinearForm(&fespace);
    M->AddDomainIntegrator(new MassIntegrator());
-   M->Assemble();
+   M->Assemble(0); // keep sparsity pattern of M and K the same
    M->FormSystemMatrix(ess_tdof_list, Mmat);
 
    M_solver.iterative_mode = false;
    M_solver.SetRelTol(rel_tol);
    M_solver.SetAbsTol(0.0);
-   M_solver.SetMaxIter(50);
+   M_solver.SetMaxIter(100);
    M_solver.SetPrintLevel(0);
+   M_prec.SetType(HypreSmoother::Jacobi);
    M_solver.SetPreconditioner(M_prec);
    M_solver.SetOperator(Mmat);
 
@@ -444,7 +503,7 @@ void ConductionOperator::SundialsSolve(const double dt, Vector &b)
 
 void ConductionOperator::SetParameters(const Vector &u)
 {
-   GridFunction u_alpha_gf(&fespace);
+   ParGridFunction u_alpha_gf(&fespace);
    u_alpha_gf.SetFromTrueDofs(u);
    for (int i = 0; i < u_alpha_gf.Size(); i++)
    {
@@ -452,12 +511,12 @@ void ConductionOperator::SetParameters(const Vector &u)
    }
 
    delete K;
-   K = new BilinearForm(&fespace);
+   K = new ParBilinearForm(&fespace);
 
    GridFunctionCoefficient u_coeff(&u_alpha_gf);
 
    K->AddDomainIntegrator(new DiffusionIntegrator(u_coeff));
-   K->Assemble();
+   K->Assemble(0); // keep sparsity pattern of M and K the same
    K->FormSystemMatrix(ess_tdof_list, Kmat);
    delete T;
    T = NULL; // re-compute T on the next ImplicitSolve or SundialsSolve
