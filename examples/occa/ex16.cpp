@@ -225,8 +225,10 @@ int main(int argc, char *argv[])
                   "Save data files for VisIt (visit.llnl.gov) visualization.");
    args.AddOption(&vis_steps, "-vs", "--visualization-steps",
                   "Visualize every n-th timestep.");
-   args.AddOption(&reltol, "-rtol", "--set-relative-tolerance");
-   args.AddOption(&abstol, "-atol", "--set-absolute-tolerance");
+   args.AddOption(&reltol, "-rtol", "--set-relative-tolerance",
+                  "Set relative tolerance the solver should use for the model.");
+   args.AddOption(&abstol, "-atol", "--set-absolute-tolerance",
+                  "Set absolute tolerance for all variables in the model.");
    args.Parse();
    if (!args.Good())
    {
