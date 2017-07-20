@@ -179,7 +179,8 @@ int main(int argc, char *argv[])
    int vis_steps = 5;
 
    // Relative and absolute tolerances for CVODE and ARKODE.
-   const double reltol = 1e-4, abstol = 1e-4;
+   double reltol = 1e-4;
+   double abstol = 1e-4;
 
    int precision = 8;
    cout.precision(precision);
@@ -224,6 +225,8 @@ int main(int argc, char *argv[])
                   "Save data files for VisIt (visit.llnl.gov) visualization.");
    args.AddOption(&vis_steps, "-vs", "--visualization-steps",
                   "Visualize every n-th timestep.");
+   args.AddOption(&reltol, "-rtol", "--set-relative-tolerance");
+   args.AddOption(&abstol, "-atol", "--set-absolute-tolerance");
    args.Parse();
    if (!args.Good())
    {
