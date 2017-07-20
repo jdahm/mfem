@@ -426,6 +426,12 @@ long int GetLength(const N_Vector &nv)
       length = N_VGetLocalLength_Parallel(nv);
    }
 #endif
+#ifdef MFEM_USE_NVECTOR_OPENMP
+   else if (nvid == SUNDIALS_NVEC_OPENMP)
+   {
+     length = N_VGetLength_OpenMP(nv);
+   }
+#endif
 #ifdef MFEM_USE_NVECTOR_CUDA
    else if (nvid == SUNDIALS_NVEC_CUDA)
    {
