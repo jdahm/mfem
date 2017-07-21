@@ -132,12 +132,30 @@ int SundialsSolver::ODEMult(realtype t, const N_Vector y,
    return 0;
 }
 
+N_Vector SundialsSolver::MakeSundialsNVector(Vector &x)
+{
+#ifdef MFEM_USE_MPI
+   if (sundials_comm != MPI_COMM_NULL) {
+      long int global_size = 0;
+      long int local_size = x.Size();
+      MPI_Allreduce(&local_size, &global_size, 1, MPI_LONG, MPI_SUM, sundials_comm);
+      return N_VMake_Parallel(sundials_comm, local_size, global_size, x.GetData());
+   }
+   else
+   {
+#endif
+      return N_VMake_Serial(x.Size(), x.GetData());
+#ifdef MFEM_USE_MPI
+   }
+#endif
+}
+
 static inline CVodeMem Mem(const CVODESolver *self)
 {
    return CVodeMem(self->SundialsMem());
 }
 
-CVODESolver::CVODESolver(int lmm, int iter)
+CVODESolver::CVODESolver(int lmm, int iter) : SundialsSolver()
 {
    // Allocate an empty serial N_Vector wrapper in y.
    y = N_VNewEmpty_Serial(0);
@@ -157,7 +175,7 @@ CVODESolver::CVODESolver(int lmm, int iter)
 
 #ifdef MFEM_USE_MPI
 
-CVODESolver::CVODESolver(MPI_Comm comm, int lmm, int iter)
+CVODESolver::CVODESolver(MPI_Comm comm, int lmm, int iter) : SundialsSolver(comm)
 {
    if (comm == MPI_COMM_NULL)
    {
@@ -252,83 +270,51 @@ static inline void cvCopyInit(CVodeMem src, CVodeMem dest)
 
 void CVODESolver::Init(TimeDependentOperator &f_)
 {
-   CVodeMem mem = Mem(this);
-   CVodeMemRec backup;
-
-   if (mem->cv_MallocDone == TRUE)
-   {
-      // TODO: preserve more options.
-      cvCopyInit(mem, &backup);
-      CVodeFree(&sundials_mem);
-      sundials_mem = CVodeCreate(backup.cv_lmm, backup.cv_iter);
-      MFEM_ASSERT(sundials_mem, "error in CVodeCreate()");
-      cvCopyInit(&backup, mem);
-   }
-
+   need_init = true;
    ODESolver::Init(f_);
-
-   // Set actual size and data in the N_Vector y.
-   int loc_size = f_.Height();
-   if (!Parallel())
-   {
-      NV_LENGTH_S(y) = loc_size;
-      NV_DATA_S(y) = new double[loc_size](); // value-initialize
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      long local_size = loc_size, global_size;
-      MPI_Allreduce(&local_size, &global_size, 1, MPI_LONG, MPI_SUM,
-                    NV_COMM_P(y));
-      NV_LOCLENGTH_P(y) = local_size;
-      NV_GLOBLENGTH_P(y) = global_size;
-      NV_DATA_P(y) = new double[loc_size](); // value-initialize
-#endif
-   }
-
-   // Call CVodeInit().
-   cvCopyInit(mem, &backup);
-   flag = CVodeInit(mem, ODEMult, f_.GetTime(), y);
-   MFEM_ASSERT(flag >= 0, "CVodeInit() failed!");
-   cvCopyInit(&backup, mem);
-
-   // Delete the allocated data in y.
-   if (!Parallel())
-   {
-      delete [] NV_DATA_S(y);
-      NV_DATA_S(y) = NULL;
-   }
-   else
-   {
-#ifdef MFEM_USE_MPI
-      delete [] NV_DATA_P(y);
-      NV_DATA_P(y) = NULL;
-#endif
-   }
-
-   // The TimeDependentOperator pointer, f, will be the user-defined data.
-   flag = CVodeSetUserData(sundials_mem, f);
-   MFEM_ASSERT(flag >= 0, "CVodeSetUserData() failed!");
-
-   flag = CVodeSStolerances(mem, mem->cv_reltol, mem->cv_Sabstol);
-   MFEM_ASSERT(flag >= 0, "CVodeSStolerances() failed!");
 }
 
 void CVODESolver::Step(Vector &x, double &t, double &dt)
 {
    CVodeMem mem = Mem(this);
+   CVodeMemRec backup;
+   const bool data_changed = (y != NULL) ?
+      (N_VGetArrayPointer(y) != x.GetData()) : true;
 
-   if (!Parallel())
+   if (data_changed)
    {
-      NV_DATA_S(y) = x.GetData();
-      MFEM_VERIFY(NV_LENGTH_S(y) == x.Size(), "");
+      N_VDestroy(y);
+      y = MakeSundialsNVector(x);
    }
-   else
+
+   if (need_init || data_changed)
    {
-#ifdef MFEM_USE_MPI
-      NV_DATA_P(y) = x.GetData();
-      MFEM_VERIFY(NV_LOCLENGTH_P(y) == x.Size(), "");
-#endif
+      if (mem->cv_MallocDone == TRUE)
+      {
+         // Need to re-initialize
+         cvCopyInit(mem, &backup);
+         CVodeFree(&sundials_mem);
+         sundials_mem = CVodeCreate(backup.cv_lmm, backup.cv_iter);
+         MFEM_ASSERT(sundials_mem, "error in CVodeCreate()");
+         cvCopyInit(&backup, mem);
+      }
+      else
+      {
+         // Need to initialize
+         // Call CVodeInit().
+         flag = CVodeInit(mem, ODEMult, f->GetTime(), y);
+         MFEM_ASSERT(flag >= 0, "CVodeInit() failed!");
+      }
+
+      // reset flag
+      need_init = false;
+
+      // The TimeDependentOperator pointer, f, will be the user-defined data.
+      flag = CVodeSetUserData(sundials_mem, f);
+      MFEM_ASSERT(flag >= 0, "CVodeSetUserData() failed!");
+
+      flag = CVodeSStolerances(mem, mem->cv_reltol, mem->cv_Sabstol);
+      MFEM_ASSERT(flag >= 0, "CVodeSStolerances() failed!");
    }
 
    if (mem->cv_nst == 0)

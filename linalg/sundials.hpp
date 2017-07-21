@@ -89,11 +89,12 @@ class SundialsSolver
 protected:
    void *sundials_mem; ///< Pointer to the SUNDIALS mem object.
    mutable int flag;   ///< Flag returned by the last call to SUNDIALS.
+   bool need_init;
 
    N_Vector y;  ///< Auxiliary N_Vector.
 #ifdef MFEM_USE_MPI
-   bool Parallel() const
-   { return (y->ops->nvgetvectorid != N_VGetVectorID_Serial); }
+   MPI_Comm sundials_comm;
+   bool Parallel() const { return sundials_comm != MPI_COMM_NULL; }
 #else
    bool Parallel() const { return false; }
 #endif
@@ -106,10 +107,26 @@ protected:
    static int ODEMult(realtype t, const N_Vector y,
                       N_Vector ydot, void *td_oper);
 
+   // Make a Sundials N_Vector wrapping the Vector.
+   N_Vector MakeSundialsNVector(Vector &x);
+
    /// @name The constructors are protected
    ///@{
-   SundialsSolver() : sundials_mem(NULL) { }
-   SundialsSolver(void *mem) : sundials_mem(mem) { }
+#ifdef MFEM_USE_MPI
+   SundialsSolver(MPI_Comm comm_) : sundials_mem(NULL), sundials_comm(comm_) { }
+#endif
+   SundialsSolver() : sundials_mem(NULL)
+   {
+#ifdef MFEM_USE_MPI
+      sundials_comm = MPI_COMM_NULL;
+#endif
+   }
+   SundialsSolver(void *mem) : sundials_mem(mem)
+   {
+#ifdef MFEM_USE_MPI
+      sundials_comm = MPI_COMM_NULL;
+#endif
+   }
    ///@}
 
 public:
