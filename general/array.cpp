@@ -15,6 +15,10 @@
 #include "array.hpp"
 #include <fstream>
 
+#if defined(MFEM_USE_CUDAUM)
+#include "cuda_runtime.h"
+#endif
+
 namespace mfem
 {
 
@@ -22,7 +26,11 @@ BaseArray::BaseArray(int asize, int ainc, int elementsize)
 {
    if (asize > 0)
    {
+#if defined(MFEM_USE_CUDAUM)
+      cudaMallocManaged(&data, asize * elementsize);
+#else
       data = new char[asize * elementsize];
+#endif
       size = allocsize = asize;
    }
    else
@@ -37,7 +45,11 @@ BaseArray::~BaseArray()
 {
    if (allocsize > 0)
    {
+#if defined(MFEM_USE_CUDAUM)
+      cudaFree(data);
+#else
       delete [] (char*)data;
+#endif
    }
 }
 
@@ -47,14 +59,22 @@ void BaseArray::GrowSize(int minsize, int elementsize)
    int nsize = (inc > 0) ? abs(allocsize) + inc : 2 * abs(allocsize);
    if (nsize < minsize) { nsize = minsize; }
 
+#if defined(MFEM_USE_CUDAUM)
+   cudaMallocManaged(&p, nsize * elementsize);
+#else
    p = new char[nsize * elementsize];
+#endif
    if (size > 0)
    {
       memcpy(p, data, size * elementsize);
    }
    if (allocsize > 0)
    {
+#if defined(MFEM_USE_CUDAUM)
+      cudaFree(data);
+#else
       delete [] (char*)data;
+#endif
    }
    data = p;
    allocsize = nsize;
