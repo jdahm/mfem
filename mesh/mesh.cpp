@@ -8272,7 +8272,7 @@ void Mesh::Transform(void (*f)(const Vector&, Vector&))
    // TODO: support for different new spaceDim.
    if (Nodes == NULL)
    {
-      Vector vold(spaceDim), vnew(NULL, spaceDim);
+      Vector vold(spaceDim), vnew((double*)NULL, spaceDim);
       for (int i = 0; i < vertices.Size(); i++)
       {
          for (int j = 0; j < spaceDim; j++)
@@ -8576,7 +8576,7 @@ int Mesh::FindPoints(DenseMatrix &point_mat, Array<int>& elem_ids,
 
    // Checks if the points lie in the closest element
    int pts_found = 0;
-   pt.NewDataAndSize(NULL, spaceDim);
+   pt.NewDataAndSize((double*)NULL, spaceDim);
    for (int k = 0; k < npts; k++)
    {
       pt.SetData(data+k*spaceDim);

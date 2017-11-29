@@ -37,12 +37,13 @@ protected:
    /** Increment of allocated memory on overflow,
        inc = 0 doubles the array */
    int inc;
-
    BaseArray() { }
    /// Creates array of asize elements of size elementsize
    BaseArray(int asize, int ainc, int elmentsize);
    /// Free the allocated memory
    ~BaseArray();
+   /// Free the allocated memory
+   void Delete();
    /** Increases the allocsize of the array to be at least minsize.
        The current content of the array is copied to the newly allocated
        space. minsize must be > abs(allocsize). */
@@ -79,6 +80,9 @@ public:
    inline Array(T *_data, int asize, int ainc = 0)
    { data = _data; size = asize; allocsize = -asize; inc = ainc; }
 
+   inline Array(const T *_data, int asize, int ainc = 0)
+   { data = const_cast<T *>(_data); size = asize; allocsize = -asize; inc = ainc; }
+
    /// Destructor
    inline ~Array() { }
 
@@ -87,6 +91,9 @@ public:
 
    /// Return the data as 'const T *'
    inline operator const T *() const { return (const T *)data; }
+
+   /// Return whether this array points to data
+   inline operator bool() { return (size > 0); }
 
    /// Returns the data
    inline T *GetData() { return (T *)data; }
@@ -165,7 +172,9 @@ public:
    }
 
    /// Make this Array a reference to a pointer
-   inline void MakeRef(T *, int);
+   inline void MakeRef(T *p, int s);
+
+   inline void MakeRef(const T *p, int s);
 
    /// Make this Array a reference to 'master'
    inline void MakeRef(const Array &master);
@@ -238,6 +247,8 @@ public:
    inline T* end() const { return (T*) data + size; }
 
    long MemoryUsage() const { return Capacity() * sizeof(T); }
+
+   // TODO: Add CheckFinite here?
 
 private:
    /// Array copy is not supported
@@ -632,10 +643,7 @@ inline void Array<T>::DeleteFirst(const T &el)
 template <class T>
 inline void Array<T>::DeleteAll()
 {
-   if (allocsize > 0)
-   {
-      delete [] (char*)data;
-   }
+   Delete();
    data = NULL;
    size = allocsize = 0;
 }
@@ -643,22 +651,23 @@ inline void Array<T>::DeleteAll()
 template <class T>
 inline void Array<T>::MakeRef(T *p, int s)
 {
-   if (allocsize > 0)
-   {
-      delete [] (char*)data;
-   }
+   Delete();
    data = p;
    size = s;
    allocsize = -s;
 }
 
 template <class T>
+inline void Array<T>::MakeRef(const T *p, int s)
+{
+   T *p_nc = const_cast<T*>(p);
+   MakeRef(p_nc, s);
+}
+
+template <class T>
 inline void Array<T>::MakeRef(const Array &master)
 {
-   if (allocsize > 0)
-   {
-      delete [] (char*)data;
-   }
+   Delete();
    data = master.data;
    size = master.size;
    allocsize = -abs(master.allocsize);

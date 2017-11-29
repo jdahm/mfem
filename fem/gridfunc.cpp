@@ -285,7 +285,7 @@ void GridFunction::GetTrueDofs(Vector &tv) const
    if (!R)
    {
       // R is identity -> make tv a reference to *this
-      tv.NewDataAndSize(data, size);
+      tv.NewDataAndSize(data, Size());
    }
    else
    {
@@ -707,7 +707,7 @@ void GridFunction::ReorderByNodes()
    int i, j, k;
    int vdim = fes->GetVDim();
    int ndofs = fes->GetNDofs();
-   double *temp = new double[size];
+   Array<double> temp(Size());
 
    k = 0;
    for (j = 0; j < ndofs; j++)
@@ -716,12 +716,7 @@ void GridFunction::ReorderByNodes()
          temp[j+i*ndofs] = data[k++];
       }
 
-   for (i = 0; i < size; i++)
-   {
-      data[i] = temp[i];
-   }
-
-   delete [] temp;
+   temp.Copy(data);
 }
 
 void GridFunction::GetVectorFieldNodalValues(Vector &val, int comp) const
@@ -1211,14 +1206,14 @@ void GridFunction::ComputeMeans(AvgType type, Array<int> &zones_per_vdof)
    switch (type)
    {
       case ARITHMETIC:
-         for (int i = 0; i < size; i++)
+         for (int i = 0; i < Size(); i++)
          {
             (*this)(i) /= zones_per_vdof[i];
          }
          break;
 
       case HARMONIC:
-         for (int i = 0; i < size; i++)
+         for (int i = 0; i < Size(); i++)
          {
             (*this)(i) = zones_per_vdof[i]/(*this)(i);
          }
@@ -2233,10 +2228,7 @@ double GridFunction::ComputeLpError(const double p, VectorCoefficient &exsol,
 
 GridFunction & GridFunction::operator=(double value)
 {
-   for (int i = 0; i < size; i++)
-   {
-      data[i] = value;
-   }
+   data = value;
    return *this;
 }
 
@@ -2244,16 +2236,13 @@ GridFunction & GridFunction::operator=(const Vector &v)
 {
    MFEM_ASSERT(fes && v.Size() == fes->GetVSize(), "");
    SetSize(v.Size());
-   for (int i = 0; i < size; i++)
-   {
-      data[i] = v(i);
-   }
+   Vector::operator=(v);
    return *this;
 }
 
 GridFunction & GridFunction::operator=(const GridFunction &v)
 {
-   return this->operator=((const Vector &)v);
+   return operator=((const Vector &)v);
 }
 
 void GridFunction::Save(std::ostream &out) const

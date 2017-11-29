@@ -83,6 +83,7 @@ MFEM_USE_NETCDF      = NO
 MFEM_USE_PETSC       = NO
 MFEM_USE_MPFR        = NO
 MFEM_USE_SIDRE       = NO
+MFEM_USE_CUDAUM      = NO
 
 LIBUNWIND_OPT = -g
 LIBUNWIND_LIB = $(if $(NOTMAC),-lunwind -ldl,)
@@ -232,6 +233,11 @@ SIDRE_LIB = \
 ifeq ($(MFEM_USE_MPI),YES)
    SIDRE_LIB += -lspio
 endif
+
+# CUDA library (allocates array-like objects with unified memory)
+CUDA_DIR = /usr/local/cuda
+CUDAUM_OPT = -I$(CUDA_DIR)/include
+CUDAUM_LIB = -L$(CUDA_DIR)/lib -lcudart
 
 # If YES, enable some informational messages
 VERBOSE = NO

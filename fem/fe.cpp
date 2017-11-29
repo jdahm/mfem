@@ -8125,7 +8125,7 @@ L2_SegmentElement::L2_SegmentElement(const int p, const int type)
 
 #ifndef MFEM_THREAD_SAFE
    shape_x.SetSize(p + 1);
-   dshape_x.SetDataAndSize(NULL, p + 1);
+   dshape_x.SetDataAndSize((double*)NULL, p + 1);
 #endif
 
    for (int i = 0; i <= p; i++)
@@ -8180,7 +8180,7 @@ L2Pos_SegmentElement::L2Pos_SegmentElement(const int p)
 {
 #ifndef MFEM_THREAD_SAFE
    shape_x.SetSize(p + 1);
-   dshape_x.SetDataAndSize(NULL, p + 1);
+   dshape_x.SetDataAndSize((double*)NULL, p + 1);
 #endif
 
    if (p == 0)
