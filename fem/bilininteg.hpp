@@ -1636,6 +1636,8 @@ public:
 
    // Friend partial assembly version so it has access to the coefficients.
    friend class PADiffusionIntegrator;
+   // TODO: Add a GetPAIntegrator method here
+   // PAIntegrator* GetPAIntegrator(type);
 };
 
 /** Class for local mass matrix assembling a(u,v) := (Q u, v) */
@@ -1759,6 +1761,9 @@ public:
                                        const FiniteElement &test_fe,
                                        ElementTransformation &Trans,
                                        DenseMatrix &elmat);
+
+   // Friend partial assembly version so it has access to the coefficients.
+   friend class PAMassIntegrator;
 };
 
 
