@@ -14,7 +14,7 @@
 
 #include "device.hpp"
 
-#if defined(MFEM_USE_OPENMP_DEV)
+#if defined(MFEM_USE_OPENMP)
 #include <omp.h>
 #endif
 
@@ -71,7 +71,7 @@ void Device::SetAccelerator(const int _accel_id)
 #endif
 }
 
-bool Device::UsesTarget() const
+bool Device::Target() const
 {
    return classification == ACCEL;
 }

@@ -12,6 +12,7 @@
 // Implementation of BilinearFormOperator
 
 #include "fem.hpp"
+#include "../general/device.hpp"
 
 namespace mfem
 {
@@ -247,12 +248,18 @@ void BilinearFormOperator::LToEVector(const Array<int> &offsets,
                                       const Vector &v, Vector &V) const
 {
    const int size = v.Size();
+
+   const int *offp = offsets.GetData();
+   const int *indp = offsets.GetData();
+   const double *vp = v.GetData();
+   double *Vp = V.GetData();
+// #pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: offp, indp, vp, Vp)
    for (int i = 0; i < size; i++)
    {
-      const int offset = offsets[i];
-      const int next_offset = offsets[i + 1];
-      const double dof_value = v(i);
-      for (int j = offset; j < next_offset; j++) { V(indices[j]) = dof_value; }
+      const int offset = offp[i];
+      const int next_offset = offp[i + 1];
+      const double dof_value = vp[i];
+      for (int j = offset; j < next_offset; j++) { Vp[indp[j]] = dof_value; }
    }
 }
 
@@ -261,14 +268,21 @@ void BilinearFormOperator::EToLVector(const Array<int> &offsets,
                                       const Vector &V, Vector &v) const
 {
    // NOTE: This method ADDS to the output v
+
    const int size = v.Size();
+
+   const int *offp = offsets.GetData();
+   const int *indp = offsets.GetData();
+   const double *Vp = V.GetData();
+   double *vp = v.GetData();
+// #pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: offp, indp, vp, Vp)
    for (int i = 0; i < size; i++)
    {
-      const int offset = offsets[i];
-      const int next_offset = offsets[i + 1];
+      const int offset = offp[i];
+      const int next_offset = offp[i + 1];
       double dof_value = 0;
-      for (int j = offset; j < next_offset; j++) { dof_value += V(indices[j]); }
-      v(i) += dof_value;
+      for (int j = offset; j < next_offset; j++) { dof_value += Vp[indp[j]]; }
+      vp[i] += dof_value;
    }
 }
 

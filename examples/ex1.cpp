@@ -51,6 +51,7 @@ int main(int argc, char *argv[])
    bool visualization = true;
    bool use_partial_assembly = false;
    bool use_smoother = true;
+   bool use_accelerator = false;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -64,6 +65,8 @@ int main(int argc, char *argv[])
                   "--no-static-condensation", "Enable static condensation.");
    args.AddOption(&use_smoother, "-pc", "--peconditioner", "-no-pc",
                   "--no-preconditioner", "Use a Gauss-Seidel preconditioner.");
+   args.AddOption(&use_accelerator, "-acc", "--use-accelerator", "-no-acc",
+                  "--no-accelerator", "Use the accelerators.");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -81,17 +84,20 @@ int main(int argc, char *argv[])
    Mesh *mesh = new Mesh(mesh_file, 1, 1);
    int dim = mesh->Dimension();
 
+   // Tell the global state that we are targeting an accelerator (default: device 0)
+   if (use_accelerator) { ExecDevice.SetAccelerator(); }
+
    // 3. Refine the mesh to increase the resolution. In this example we do
    //    'ref_levels' of uniform refinement. We choose 'ref_levels' to be the
    //    largest number that gives a final mesh with no more than 50,000
    //    elements.
    {
-      int ref_levels =
-         (int)floor(log(50000./mesh->GetNE())/log(2.)/dim);
-      for (int l = 0; l < ref_levels; l++)
-      {
-         mesh->UniformRefinement();
-      }
+      // int ref_levels =
+      //    (int)floor(log(50000./mesh->GetNE())/log(2.)/dim);
+      // for (int l = 0; l < ref_levels; l++)
+      // {
+      //    mesh->UniformRefinement();
+      // }
    }
 
    // 4. Define a finite element space on the mesh. Here we use continuous

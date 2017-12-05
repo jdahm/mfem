@@ -12,6 +12,7 @@
 // Implementation of data type vector
 
 #include "vector.hpp"
+#include "../general/device.hpp"
 
 #if defined(MFEM_USE_SUNDIALS) && defined(MFEM_USE_MPI)
 #include <nvector/nvector_parallel.h>
@@ -244,9 +245,12 @@ void add(const Vector &v1, const Vector &v2, Vector &v)
    }
 #endif
 
+   double *vp = v.data;
+   const double *v1p = v1.data, *v2p = v2.data;
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: vp, v1p, v2p)
    for (int i = 0; i < v.Size(); i++)
    {
-      v.data[i] = v1.data[i] + v2.data[i];
+      vp[i] = v1p[i] + v2p[i];
    }
 }
 
@@ -271,6 +275,7 @@ void add(const Vector &v1, double alpha, const Vector &v2, Vector &v)
       const double *v1p = v1.data, *v2p = v2.data;
       double *vp = v.data;
       const int s = v.Size();
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: vp, v1p, v2p, alpha)
       for (int i = 0; i < s; i++)
       {
          vp[i] = v1p[i] + alpha*v2p[i];
@@ -361,6 +366,7 @@ void subtract(const Vector &x, const Vector &y, Vector &z)
    const double *yp = y.data;
    double       *zp = z.data;
 
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target())
    for (int i = 0; i < s; i++)
    {
       zp[i] = xp[i] - yp[i];

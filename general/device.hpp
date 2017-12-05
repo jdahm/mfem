@@ -33,7 +33,7 @@ public:
 
    void SetAccelerator(const int _accel_id = 0);
 
-   bool UsesTarget() const;
+   bool Target() const;
 
 protected:
    int classification;
