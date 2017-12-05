@@ -661,7 +661,7 @@ public:
       : tdata(d, i*j*k), Mk((double*)NULL, i, j), nk(k) { }
 
    DenseTensor(const double *d, int i, int j, int k)
-      : tdata(d, i*j*k), Mk((double*)NULL, i, j), nk(k) { }
+      : tdata(d, i*j*k), Mk((const double*)NULL, i, j), nk(k) { }
 
    int SizeI() const { return Mk.Height(); }
    int SizeJ() const { return Mk.Width(); }

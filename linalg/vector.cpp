@@ -366,7 +366,7 @@ void subtract(const Vector &x, const Vector &y, Vector &z)
    const double *yp = y.data;
    double       *zp = z.data;
 
-#pragma omp target teams distribute parallel for if(target:ExecDevice.Target())
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: zp, xp, yp)
    for (int i = 0; i < s; i++)
    {
       zp[i] = xp[i] - yp[i];
