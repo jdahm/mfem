@@ -33,6 +33,9 @@ public:
 
    void SetAccelerator(const int _accel_id = 0);
 
+   void StartTarget();
+   void StopTarget();
+
    bool Target() const;
 
 protected:
@@ -40,6 +43,7 @@ protected:
    int num_cores;
    int num_threads;
    int accel_id;
+   bool use_target;
 };
 
 extern Device ExecDevice;

@@ -188,7 +188,9 @@ int main(int argc, char *argv[])
    }
    else
    {
+      ExecDevice.StartTarget();
       CG(*A, B, X, 1, 200, 1e-12, 0.0);
+      ExecDevice.StopTarget();
    }
 
 #else

@@ -57,7 +57,8 @@ Device::Device() :
    classification(HOST),
    num_cores(numHostCores()),
    num_threads(numHostThreads()),
-   accel_id(-1) { }
+   accel_id(-1),
+   use_target(false) { }
 
 void Device::SetAccelerator(const int _accel_id)
 {
@@ -71,9 +72,19 @@ void Device::SetAccelerator(const int _accel_id)
 #endif
 }
 
+void Device::StartTarget()
+{
+  use_target = true;
+}
+
+void Device::StopTarget()
+{
+  use_target = false;
+}
+
 bool Device::Target() const
 {
-   return classification == ACCEL;
+   return use_target && (classification == ACCEL);
 }
 
 Device ExecDevice;
