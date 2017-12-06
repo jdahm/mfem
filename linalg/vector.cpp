@@ -72,11 +72,17 @@ const double &Vector::Elem(int i) const
 double Vector::operator*(const double *v) const
 {
    const int s = Size();
-   const double *d = data;
+   const double *d = GetData();
    double prod = 0.0;
-   for (int i = 0; i < s; i++)
+   if (ExecDevice.Target())
    {
-      prod += d[i] * v[i];
+#pragma omp target teams distribute parallel for map(tofrom: prod) is_device_ptr(d, v) reduction(+:prod)
+      for (int i = 0; i < s; i++) prod += d[i] * v[i];
+   }
+   else
+   {
+#pragma omp distribute parallel for reduction(+:prod)
+      for (int i = 0; i < s; i++) prod += d[i] * v[i];
    }
    return prod;
 }
