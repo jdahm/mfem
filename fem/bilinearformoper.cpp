@@ -253,7 +253,7 @@ void BilinearFormOperator::LToEVector(const Array<int> &offsets,
    const int *indp = indices.GetData();
    const double *vp = v.GetData();
    double *Vp = V.GetData();
-#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: offp, indp, vp, Vp)
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) is_device_ptr(offp, indp, vp, Vp)
    for (int i = 0; i < size; i++)
    {
       const int offset = offp[i];
@@ -275,7 +275,7 @@ void BilinearFormOperator::EToLVector(const Array<int> &offsets,
    const int *indp = indices.GetData();
    const double *Vp = V.GetData();
    double *vp = v.GetData();
-#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: offp, indp, vp, Vp)
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) is_device_ptr(offp, indp, vp, Vp)
    for (int i = 0; i < size; i++)
    {
       const int offset = offp[i];

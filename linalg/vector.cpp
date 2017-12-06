@@ -95,9 +95,11 @@ double Vector::operator*(const Vector &v) const
 
 Vector &Vector::operator=(const double *v)
 {
-   for (int i = 0; i < Size(); i++)
+  double *d = GetData();
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) is_device_ptr(d, v)
+  for (int i = 0; i < Size(); i++)
    {
-      data[i] = v[i];
+      d[i] = v[i];
    }
    return *this;
 }
@@ -247,7 +249,7 @@ void add(const Vector &v1, const Vector &v2, Vector &v)
 
    double *vp = v.data;
    const double *v1p = v1.data, *v2p = v2.data;
-#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: vp, v1p, v2p)
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) is_device_ptr(vp, v1p, v2p)
    for (int i = 0; i < v.Size(); i++)
    {
       vp[i] = v1p[i] + v2p[i];
@@ -275,7 +277,7 @@ void add(const Vector &v1, double alpha, const Vector &v2, Vector &v)
       const double *v1p = v1.data, *v2p = v2.data;
       double *vp = v.data;
       const int s = v.Size();
-#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: vp, v1p, v2p, alpha)
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) is_device_ptr(vp, v1p, v2p)
       for (int i = 0; i < s; i++)
       {
          vp[i] = v1p[i] + alpha*v2p[i];
@@ -366,7 +368,7 @@ void subtract(const Vector &x, const Vector &y, Vector &z)
    const double *yp = y.data;
    double       *zp = z.data;
 
-#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) map(to: zp, xp, yp)
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) is_device_ptr(zp, xp, yp)
    for (int i = 0; i < s; i++)
    {
       zp[i] = xp[i] - yp[i];

@@ -102,6 +102,28 @@ void Array<T>::Print(std::ostream &out, int width) const
 }
 
 template <class T>
+static void equate_target(T *d, T a, int size)
+{
+#pragma omp target teams distribute parallel for if(target:ExecDevice.Target()) is_device_ptr(d)
+   for (int i = 0; i < size; i++)
+   {
+      d[i] = a;
+   }
+}
+
+template <>
+void Array<int>::operator=(const int &a)
+{
+  equate_target(GetData(), a, size);
+}
+
+template <>
+void Array<double>::operator=(const double &a)
+{
+  equate_target(GetData(), a, size);
+}
+
+template <class T>
 void Array<T>::Save(std::ostream &out, int fmt) const
 {
    if (fmt == 0)
