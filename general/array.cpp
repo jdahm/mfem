@@ -13,10 +13,9 @@
 // Abstract array data type
 
 #include "array.hpp"
+#include "simpool.hpp"
 
-#if defined(MFEM_USE_CUDAUM)
-#include "cuda_runtime.h"
-#endif
+typedef DynamicPoolAllocator<Allocator> PoolType;
 
 namespace mfem
 {
@@ -25,11 +24,8 @@ BaseArray::BaseArray(int asize, int ainc, int elementsize)
 {
    if (asize > 0)
    {
-#if defined(MFEM_USE_CUDAUM)
-      cudaMallocManaged(&data, asize * elementsize);
-#else
-      data = new char[asize * elementsize];
-#endif
+      PoolType& pool = PoolType::getInstance();
+      data = pool.allocate(asize * elementsize);
       size = allocsize = asize;
    }
    else
@@ -49,11 +45,8 @@ void BaseArray::Delete()
 {
    if (allocsize > 0)
    {
-#if defined(MFEM_USE_CUDAUM)
-      cudaFree(data);
-#else
-      delete [] (char*)data;
-#endif
+      PoolType& pool = PoolType::getInstance();
+      pool.deallocate(data);
    }
 }
 
@@ -63,22 +56,15 @@ void BaseArray::GrowSize(int minsize, int elementsize)
    int nsize = (inc > 0) ? abs(allocsize) + inc : 2 * abs(allocsize);
    if (nsize < minsize) { nsize = minsize; }
 
-#if defined(MFEM_USE_CUDAUM)
-   cudaMallocManaged(&p, nsize * elementsize);
-#else
-   p = new char[nsize * elementsize];
-#endif
+   PoolType& pool = PoolType::getInstance();
+   p = pool.allocate(nsize * elementsize);
    if (size > 0)
    {
       memcpy(p, data, size * elementsize);
    }
    if (allocsize > 0)
    {
-#if defined(MFEM_USE_CUDAUM)
-      cudaFree(data);
-#else
-      delete [] (char*)data;
-#endif
+      pool.deallocate(data);
    }
    data = p;
    allocsize = nsize;
