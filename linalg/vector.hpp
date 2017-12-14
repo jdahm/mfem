@@ -44,6 +44,8 @@ protected:
 
    Array<double> data;
 
+  DeviceSpec device;
+
 public:
 
    /// Default constructor for Vector. Sets size = 0 and data = NULL.
@@ -282,6 +284,26 @@ public:
        Vector. */
    virtual void ToNVector(N_Vector &nv);
 #endif
+};
+
+class DeviceVector : public Vector
+{
+public:
+   DeviceVector() : Vector() { device.type = DeviceSpec::ACCEL; }
+
+   /// Copy constructor. Allocates a new data array and copies the data.
+   DeviceVector(const Vector &v) : Vector(v) { device.type = DeviceSpec::ACCEL; };
+
+   /// @brief Creates vector of size s.
+   /// @warning Entries are not initialized to zero!
+   explicit DeviceVector(int s) : Vector(s) { device.type = DeviceSpec::ACCEL; };
+
+   /// Creates a vector referencing an array of doubles, owned by someone else.
+   /** The pointer @a _data can be NULL. The data array can be replaced later
+       with SetData(). */
+   DeviceVector(double *_data, int _size) : Vector(_data, _size) { device.type = DeviceSpec::ACCEL; }
+
+   DeviceVector(const double *_data, int _size) : Vector(_data, _size) { device.type = DeviceSpec::ACCEL; }
 };
 
 // Inline methods

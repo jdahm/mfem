@@ -17,36 +17,25 @@
 namespace mfem
 {
 
-class Device
+extern bool skip_target;
+
+struct DeviceSpec
 {
-public:
-   // The Device Class is meant to guide the choice of suitable computational
-   // kernels. A kernel may be classified as being suitable for a combination of
-   // device classes.
    enum Class
    {
       HOST = 1,
       ACCEL = 2
    };
 
-   Device();
+   enum Class type;
+   int id;
 
-   void SetAccelerator(const int _accel_id = 0);
-
-   void StartTarget();
-   void StopTarget();
-
-   bool Target() const;
-
-protected:
-   int classification;
-   int num_cores;
-   int num_threads;
-   int accel_id;
-   bool use_target;
+   DeviceSpec() : type(HOST), id(0) { }
+   bool UseTarget() const { return (type == ACCEL) && (!skip_target); }
 };
 
-extern Device ExecDevice;
+void SetDefaultAccelerator(int id);
+void UseHost();
 
 } // namespace mfem
 

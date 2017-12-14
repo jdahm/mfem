@@ -174,6 +174,9 @@ public:
    NURBSExtension *NURBSext; ///< Optional NURBS mesh extension.
    NCMesh *ncmesh;           ///< Optional non-conforming mesh extension.
 
+   // Target device
+   DeviceSpec device;
+
 protected:
    Operation last_operation;
 
@@ -1124,6 +1127,26 @@ public:
 /** Overload operator<< for std::ostream and Mesh; valid also for the derived
     class ParMesh */
 std::ostream &operator<<(std::ostream &out, const Mesh &mesh);
+
+class DeviceMesh : public Mesh
+{
+public:
+  explicit DeviceMesh(int n, double sx = 1.0) : Mesh(n, sx) { device.type = DeviceSpec::ACCEL; }
+
+   DeviceMesh(const char *filename, int generate_edges = 0, int refine = 1,
+              bool fix_orientation = true) :
+     Mesh(filename, generate_edges, refine, fix_orientation) { device.type = DeviceSpec::ACCEL; }
+
+   DeviceMesh(std::istream &input, int generate_edges = 0, int refine = 1,
+              bool fix_orientation = true) :
+     Mesh(input, generate_edges, refine, fix_orientation) { device.type = DeviceSpec::ACCEL; }
+
+   DeviceMesh(Mesh *mesh_array[], int num_pieces) :
+     Mesh(mesh_array, num_pieces) { device.type = DeviceSpec::ACCEL; }
+
+   DeviceMesh(Mesh *orig_mesh, int ref_factor, int ref_type) :
+     Mesh(orig_mesh, ref_factor, ref_type) { device.type = DeviceSpec::ACCEL; }
+};
 
 
 /// Class used to extrude the nodes of a mesh

@@ -57,6 +57,7 @@ int main(int argc, char *argv[])
    bool visualization = true;
    bool use_partial_assembly = false;
    bool use_amg = true;
+   bool use_accelerator = false;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -70,6 +71,8 @@ int main(int argc, char *argv[])
                   "--no-static-condensation", "Enable static condensation.");
    args.AddOption(&use_amg, "-pc", "--peconditioner", "-no-pc",
                   "--no-preconditioner", "Use an algebraic multigrid preconditioner.");
+   args.AddOption(&use_accelerator, "-acc", "--use-accelerator", "-no-acc",
+                  "--no-accelerator", "Use the accelerators.");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -88,10 +91,12 @@ int main(int argc, char *argv[])
       args.PrintOptions(cout);
    }
 
+   if (!use_accelerator) { UseHost(); }
+
    // 3. Read the (serial) mesh from the given mesh file on all processors.  We
    //    can handle triangular, quadrilateral, tetrahedral, hexahedral, surface
    //    and volume meshes with the same code.
-   Mesh *mesh = new Mesh(mesh_file, 1, 1);
+   Mesh *mesh = new DeviceMesh(mesh_file, 1, 1);
    int dim = mesh->Dimension();
 
    // 4. Refine the serial mesh on all processors to increase the resolution. In
@@ -182,7 +187,7 @@ int main(int argc, char *argv[])
    // Use the global map instead
    BilinearFormOperator A_pa(new PAIntegratorMap);
    HypreParMatrix A_hpm;
-   Vector B, X;
+   DeviceVector B, X;
 
    if (static_cond) { a->EnableStaticCondensation(); }
    // 11. Assemble the parallel bilinear form and the corresponding linear

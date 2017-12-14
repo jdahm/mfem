@@ -238,7 +238,7 @@ public:
    /// Sum all entries
    T Sum();
 
-   void operator=(const T &a);
+   inline void operator=(const T &a);
 
    /// Copy data from a pointer. Size() elements are copied.
    inline void Assign(const T *);
@@ -686,7 +686,7 @@ inline void Array<T>::GetSubArray(int offset, int sa_size, Array<T> &sa)
 }
 
 template <class T>
-void Array<T>::operator=(const T &a)
+inline void Array<T>::operator=(const T &a)
 {
   T* d = GetData();
    for (int i = 0; i < size; i++)
@@ -694,14 +694,6 @@ void Array<T>::operator=(const T &a)
       d[i] = a;
    }
 }
-
-// Specializations that can execute in a target region.
-// TODO: Move these into here once bug is fixed.
-template <>
-void Array<int>::operator=(const int &a);
-
-template <>
-void Array<double>::operator=(const double &a);
 
 template <class T>
 inline void Array<T>::Assign(const T *p)

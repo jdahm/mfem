@@ -78,14 +78,13 @@ int main(int argc, char *argv[])
    }
    args.PrintOptions(cout);
 
+   if (!use_accelerator) { UseHost(); }
+
    // 2. Read the mesh from the given mesh file. We can handle triangular,
    //    quadrilateral, tetrahedral, hexahedral, surface and volume meshes with
    //    the same code.
-   Mesh *mesh = new Mesh(mesh_file, 1, 1);
+   Mesh *mesh = new DeviceMesh(mesh_file, 1, 1);
    int dim = mesh->Dimension();
-
-   // Tell the global state that we are targeting an accelerator (default: device 0)
-   if (use_accelerator) { ExecDevice.SetAccelerator(); }
 
    // 3. Refine the mesh to increase the resolution. In this example we do
    //    'ref_levels' of uniform refinement. We choose 'ref_levels' to be the
@@ -150,7 +149,7 @@ int main(int argc, char *argv[])
    // 8. Set up the bilinear form a(.,.) on the finite element space
    //    corresponding to the Laplacian operator -Delta, by adding the Diffusion
    //    domain integrator.
-   Vector B, X;
+   DeviceVector B, X;
    BilinearForm *a = new BilinearForm(fespace);
    a->AddDomainIntegrator(new DiffusionIntegrator(one));
 
@@ -188,9 +187,7 @@ int main(int argc, char *argv[])
    }
    else
    {
-      ExecDevice.StartTarget();
       CG(*A, B, X, 1, 200, 1e-12, 0.0);
-      ExecDevice.StopTarget();
    }
 
 #else

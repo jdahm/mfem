@@ -9,8 +9,8 @@
 // terms of the GNU Lesser General Public License (as published by the Free
 // Software Foundation) version 2.1 dated February 1999.
 
-
-// Device class for storing the execution device information.
+#ifndef MFEM_DEVICE
+#define MFEM_DEVICE
 
 #include "device.hpp"
 
@@ -18,75 +18,21 @@
 #include <omp.h>
 #endif
 
-#if defined(_WIN32)
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
-
 namespace mfem
 {
 
-static int numHostCores()
-{
-#if !defined(_WIN32)
-   return sysconf(_SC_NPROCESSORS_ONLN);
-#else
-   SYSTEM_INFO sysinfo;
-   GetSystemInfo(&sysinfo);
-   return = sysinfo.dwNumberOfProcessors;
-#endif
-}
+bool skip_target = false;
 
-static int numHostThreads()
-{
-   int num_threads = 1;
-#if defined(MFEM_USE_OPENMP)
-#pragma omp parallel
-   {
-#pragma omp master
-      {
-         num_threads = omp_get_num_threads();
-      }
-   }
-#endif
-   return num_threads;
-}
-
-Device::Device() :
-   classification(HOST),
-   num_cores(numHostCores()),
-   num_threads(numHostThreads()),
-   accel_id(-1),
-   use_target(false) { }
-
-void Device::SetAccelerator(const int _accel_id)
+void SetDefaultAccelerator(int id)
 {
 #if defined(MFEM_USE_OPENMP)
-#pragma omp single
-   {
-      classification = ACCEL;
-      accel_id = _accel_id;
-      omp_set_default_device(accel_id);
-   }
+     omp_set_default_device(id);
 #endif
 }
 
-void Device::StartTarget()
-{
-  use_target = true;
-}
+void UseHost() { skip_target = true; }
 
-void Device::StopTarget()
-{
-  use_target = false;
-}
-
-bool Device::Target() const
-{
-   return use_target && (classification == ACCEL);
-}
-
-Device ExecDevice;
 
 } // namespace mfem
+
+#endif
