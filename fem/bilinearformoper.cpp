@@ -46,21 +46,23 @@ static void BuildDofMaps(FiniteElementSpace *fespace, Array<int> *&off,
    {
       const FiniteElement *fe = fespace->GetFE(e);
       const int dofs = fe->GetDof();
-      const int vdofs = dofs * vdim;
       const TensorBasisElement *tfe = dynamic_cast<const TensorBasisElement *>(fe);
       const Array<int> &dof_map = tfe->GetDofMap();
 
       fespace->GetElementVDofs(e, elem_vdof);
 
       for (int vd = 0; vd < vdim; vd++)
-         for (int i = 0; i < vdofs; i++)
+         for (int i = 0; i < dofs; i++)
          {
             global_map[offset + dofs*vd + i] = elem_vdof[dofs*vd + dof_map[i]];
          }
-      offset += vdofs;
+      offset += dofs * vdim;
    }
 
-   // Store and use a set of offsets and indices instead of this map
+   // global_map[i] = index in global vector for local dof i
+   // NOTE: multiple i values will yield same global_map[i] for shared DOF.
+
+   // We want to now invert this map so we have indices[j] = (local dof for global dof j).
 
    // Zero the offset vector
    offsets = 0;
@@ -93,86 +95,52 @@ static void BuildDofMaps(FiniteElementSpace *fespace, Array<int> *&off,
    offsets[0] = 0;
 }
 
-BilinearFormOperator::BilinearFormOperator(IntegratorMap *_map)
-   : bf(NULL), mbf(NULL),
-     trial_fes(NULL), test_fes(NULL),
-     trial_gs(false), test_gs(false),
-     trial_offsets(NULL), trial_indices(NULL),
-     test_offsets(NULL), test_indices(NULL),
-     X(NULL), Y(NULL),
-     map(_map) { }
-
 BilinearFormOperator::~BilinearFormOperator()
 {
-   delete map;
-   Clear();
+   delete trial_offsets;
+   delete trial_indices;
+
+   if (test_fes)
+   {
+      delete test_offsets;
+      delete test_indices;
+   }
+
+   if (trial_gs) delete X;
+   if (test_gs) delete Y;
 }
 
-void BilinearFormOperator::Assemble(BilinearForm *_bf)
+BilinearFormOperator::BilinearFormOperator(BilinearForm *_bf)
 {
-   if (_bf != bf)
+   bf = _bf;
+   height = bf->Height();
+   width = bf->Width();
+
+   Init(bf->FESpace(), NULL);
+
+   // Add the integrators from bf->fesi
+   Array<LinearFESpaceIntegrator*> &other_fesi = *(bf->GetFESI());
+   for (int i = 0; i < other_fesi.Size(); i++)
    {
-      bf = _bf;
-      height = bf->Height();
-      width = bf->Width();
-
-      Init(bf->FESpace(), NULL);
-
-      // Delete the old integrator list -- Note that this does not
-      // delete the integrators themselves (since the original
-      // bilinear form owns these)
-      lfesi.DeleteAll();
-
-      // Add the integrators from bf->fesi
-      Array<LinearFESpaceIntegrator*> &other_fesi = *(bf->GetFESI());
-      for (int i = 0; i < other_fesi.Size(); i++)
-      {
-         lfesi.Append(other_fesi[i]);
-      }
-
-      if (map)
-      {
-         Array<BilinearFormIntegrator*> &dbfi = *(bf->GetDBFI());
-         for (int i = 0; i < dbfi.Size(); i++)
-         {
-            lfesi.Append(map->DomainIntegrator(dbfi[i]));
-         }
-      }
+      lfesi.Append(other_fesi[i]);
    }
 
    Assemble();
 }
 
-void BilinearFormOperator::Assemble(MixedBilinearForm *_mbf)
+BilinearFormOperator::BilinearFormOperator(MixedBilinearForm *_mbf)
 {
-   if (_mbf != mbf)
+   mbf = _mbf;
+   height = bf->Height();
+   width = bf->Width();
+
+   Init(mbf->TrialFESpace(), mbf->TestFESpace());
+
+   // Add the integrators from mbf->fesi
+   Array<LinearFESpaceIntegrator*> &other_fesi = *(mbf->GetFESI());
+   for (int i = 0; i < other_fesi.Size(); i++)
    {
-      mbf = _mbf;
-      height = bf->Height();
-      width = bf->Width();
-
-      Init(mbf->TrialFESpace(), mbf->TestFESpace());
-
-      // Delete the old integrator list -- Note that this does not
-      // delete the integrators themselves (since the original mixed
-      // bilinear form owns these)
-      lfesi.DeleteAll();
-
-      // Add the integrators from mbf->fesi
-      Array<LinearFESpaceIntegrator*> &other_fesi = *(mbf->GetFESI());
-      for (int i = 0; i < other_fesi.Size(); i++)
-      {
-         lfesi.Append(other_fesi[i]);
-      }
-
-      if (map)
-      {
-         Array<BilinearFormIntegrator*> &dbfi = *(mbf->GetDBFI());
-         for (int i = 0; i < dbfi.Size(); i++)
-         {
-            lfesi.Append(map->DomainIntegrator(dbfi[i]));
-         }
-      }
+      lfesi.Append(other_fesi[i]);
    }
 
    Assemble();
@@ -187,58 +155,51 @@ void BilinearFormOperator::Assemble()
    }
 }
 
-void BilinearFormOperator::Clear()
-{
-   delete trial_offsets;
-   delete trial_indices;
-
-   if (test_fes)
-   {
-      delete test_offsets;
-      delete test_indices;
-   }
-
-   delete X;
-   delete Y;
-}
-
 void BilinearFormOperator::Init(FiniteElementSpace *_trial_fes,
-                           FiniteElementSpace *_test_fes)
+                                FiniteElementSpace *_test_fes)
 {
-   if ((_trial_fes != trial_fes) || (_test_fes != test_fes))
-   {
-      // Clear before recreating
-      Clear();
+   trial_fes = _trial_fes;
+   test_fes = _test_fes;
+   trial_offsets = NULL;
+   trial_indices = NULL;
+   trial_gs = true;
+   test_offsets = NULL;
+   test_indices = NULL;
+   test_gs = true;
+   X = NULL;
+   Y = NULL;
 
-      trial_fes = _trial_fes;
-      test_fes = _test_fes;
-      BuildDofMaps(trial_fes, trial_offsets, trial_indices);
-
-      if (test_fes != NULL)
-      {
-         BuildDofMaps(test_fes, test_offsets, test_indices);
-      }
-      else
-      {
-         // Point to the trial offsets and indices
-         test_offsets = trial_offsets;
-         test_indices = trial_indices;
-      }
-
-      X = new Vector(trial_indices->Size());
-      Y = new Vector(test_indices->Size());
-   }
-
-   const FiniteElementSpace *actual_test_fes =
-      (test_fes != NULL) ? test_fes : trial_fes;
-   trial_gs = test_gs = true;
    if (dynamic_cast<const L2_FECollection *>(trial_fes->FEColl()))
    {
       trial_gs = test_gs = false;
    }
-   else if (dynamic_cast<const L2_FECollection *>(actual_test_fes->FEColl()))
+
+   if (trial_gs)
+   {
+      BuildDofMaps(trial_fes, trial_offsets, trial_indices);
+      X = new Vector(trial_indices->Size());
+   }
+
+   const FiniteElementSpace *actual_test_fes =
+      (test_fes != NULL) ? test_fes : trial_fes;
+   if (dynamic_cast<const L2_FECollection *>(actual_test_fes->FEColl()))
    {
       test_gs = false;
+   }
+
+   if (test_fes && (test_fes != trial_fes))
+   {
+      BuildDofMaps(test_fes, test_offsets, test_indices);
+   }
+   else
+   {
+      test_offsets = trial_offsets;
+      test_indices = trial_indices;
+   }
+
+   if (test_gs)
+   {
+      Y = new Vector(test_indices->Size());
    }
 }
 
