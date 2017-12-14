@@ -37,7 +37,7 @@ struct Allocator
   }
   static inline void deallocate(void *ptr) { cudaFree(ptr); }
 #else
-  static inline void* allocate(std::size_t size) { return  }
+  static inline void* allocate(std::size_t size) { return std::malloc(size); }
   static inline void  deallocate(void *ptr) { std::free(ptr); }
 #endif
 };
