@@ -76,12 +76,16 @@ double Vector::operator*(const double *v) const
    double prod = 0.0;
    if (device.UseTarget())
    {
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for map(tofrom: prod) is_device_ptr(d, v) reduction(+:prod)
+#endif
       for (int i = 0; i < s; i++) prod += d[i] * v[i];
    }
    else
    {
+#if defined(MFEM_USE_OPENMP)
 #pragma omp distribute parallel for reduction(+:prod)
+#endif
       for (int i = 0; i < s; i++) prod += d[i] * v[i];
    }
    return prod;
@@ -102,7 +106,9 @@ double Vector::operator*(const Vector &v) const
 Vector &Vector::operator=(const double *v)
 {
    double *d = GetData();
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d, v)
+#endif
    for (int i = 0; i < Size(); i++)
    {
       d[i] = v[i];
@@ -123,7 +129,9 @@ Vector &Vector::operator=(const Vector &v)
 Vector &Vector::operator=(double value)
 {
    double *d = GetData();
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d)
+#endif
    for (int i = 0; i < Size(); i++)
    {
       d[i] = value;
@@ -134,7 +142,9 @@ Vector &Vector::operator=(double value)
 Vector &Vector::operator*=(double c)
 {
    double *d = GetData();
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d)
+#endif
    for (int i = 0; i < Size(); i++)
    {
       d[i] *= c;
@@ -146,7 +156,9 @@ Vector &Vector::operator/=(double c)
 {
    const double m = 1.0/c;
    double *d = GetData();
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d)
+#endif
    for (int i = 0; i < Size(); i++)
    {
       d[i] *= m;
@@ -157,7 +169,9 @@ Vector &Vector::operator/=(double c)
 Vector &Vector::operator-=(double c)
 {
    double *d = GetData();
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d)
+#endif
    for (int i = 0; i < Size(); i++)
    {
       d[i] -= c;
@@ -175,7 +189,9 @@ Vector &Vector::operator-=(const Vector &v)
 #endif
    double *d = GetData();
    const double *vd = v.GetData();
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d, vd)
+#endif
    for (int i = 0; i < Size(); i++)
    {
      d[i] -= vd[i];
@@ -193,7 +209,9 @@ Vector &Vector::operator+=(const Vector &v)
 #endif
    double *d = GetData();
    const double *vd = v.GetData();
+#if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d, vd)
+#endif
    for (int i = 0; i < Size(); i++)
    {
      d[i] += vd[i];
@@ -272,8 +290,10 @@ void add(const Vector &v1, const Vector &v2, Vector &v)
 
    double *vp = v.data;
    const double *v1p = v1.data, *v2p = v2.data;
+#if defined(MFEM_USE_OPENMP)
    const bool use_target = (v1.device.UseTarget() && v2.device.UseTarget());
 #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(vp, v1p, v2p)
+#endif
    for (int i = 0; i < v.Size(); i++)
    {
       vp[i] = v1p[i] + v2p[i];
@@ -301,8 +321,10 @@ void add(const Vector &v1, double alpha, const Vector &v2, Vector &v)
       const double *v1p = v1.data, *v2p = v2.data;
       double *vp = v.data;
       const int s = v.Size();
+#if defined(MFEM_USE_OPENMP)
       const bool use_target = (v1.device.UseTarget() && v2.device.UseTarget() && v.device.UseTarget());
 #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(vp, v1p, v2p)
+#endif
       for (int i = 0; i < s; i++)
       {
          vp[i] = v1p[i] + alpha*v2p[i];
@@ -393,8 +415,10 @@ void subtract(const Vector &x, const Vector &y, Vector &z)
    const double *yp = y.data;
    double       *zp = z.data;
 
+#if defined(MFEM_USE_OPENMP)
    const bool use_target = (x.device.UseTarget() && y.device.UseTarget() && z.device.UseTarget());
 #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zp, xp, yp)
+#endif
    for (int i = 0; i < s; i++)
    {
       zp[i] = xp[i] - yp[i];
