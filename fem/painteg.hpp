@@ -46,9 +46,14 @@ protected:
    DenseMatrix shape1d, dshape1d;
 
    // Action methods
-   void MultSeg(const Vector &V, Vector &U);
-   void MultQuad(const Vector &V, Vector &U);
-   void MultHex(const Vector &V, Vector &U);
+   void MultSeg_Host(const Vector &V, Vector &U);
+   void MultQuad_Host(const Vector &V, Vector &U);
+   void MultHex_Host(const Vector &V, Vector &U);
+
+   // Device methods with finer parallelism
+   void MultSeg_Device(const Vector &V, Vector &U);
+   void MultQuad_Device(const Vector &V, Vector &U);
+   void MultHex_Device(const Vector &V, Vector &U);
 
 public:
    PADiffusionIntegrator(DiffusionIntegrator *_integ) : integ(_integ) {}
@@ -72,9 +77,14 @@ protected:
    DenseMatrix shape1d;
 
    // Action methods
-   void MultSeg(const Vector &V, Vector &U);
-   void MultQuad(const Vector &V, Vector &U);
-   void MultHex(const Vector &V, Vector &U);
+   void MultSeg_Host(const Vector &V, Vector &U);
+   void MultQuad_Host(const Vector &V, Vector &U);
+   void MultHex_Host(const Vector &V, Vector &U);
+
+   // Device methods with finer parallelism
+   void MultSeg_Device(const Vector &V, Vector &U);
+   void MultQuad_Device(const Vector &V, Vector &U);
+   void MultHex_Device(const Vector &V, Vector &U);
 
 public:
    PAMassIntegrator(MassIntegrator *_integ) : integ(_integ), vinteg(NULL) {}

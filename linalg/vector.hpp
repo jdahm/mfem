@@ -44,9 +44,9 @@ protected:
 
    Array<double> data;
 
-  DeviceSpec device;
-
 public:
+
+   DeviceSpec device;
 
    /// Default constructor for Vector. Sets size = 0 and data = NULL.
    Vector () : data() { }

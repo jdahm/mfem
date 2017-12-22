@@ -108,18 +108,30 @@ void ConstrainedOperator::EliminateRHS(const Vector &x, Vector &b) const
 {
    w = 0.0;
 
+   double *wd = w.GetData();
+   double *bd = b.GetData();
+   const double *xd = x.GetData();
+   const int *cld = constraint_list.GetData();
+
+   const bool use_target = x.device.UseTarget();
+// #if defined(MFEM_USE_OPENMP)
+// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(wd, xd, cld)
+// #endif
    for (int i = 0; i < constraint_list.Size(); i++)
    {
-      w(constraint_list[i]) = x(constraint_list[i]);
+      wd[cld[i]] = xd[cld[i]];
    }
 
    A->Mult(w, z);
 
    b -= z;
 
+// #if defined(MFEM_USE_OPENMP)
+// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(bd, xd, cld)
+// #endif
    for (int i = 0; i < constraint_list.Size(); i++)
    {
-      b(constraint_list[i]) = x(constraint_list[i]);
+      bd[cld[i]] = xd[cld[i]];
    }
 }
 
@@ -133,16 +145,28 @@ void ConstrainedOperator::Mult(const Vector &x, Vector &y) const
 
    z = x;
 
+   double *yd = y.GetData();
+   double *zd = z.GetData();
+   const double *xd = x.GetData();
+   const int *cld = constraint_list.GetData();
+
+   const bool use_target = x.device.UseTarget();
+// #if defined(MFEM_USE_OPENMP)
+// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zd, cld)
+// #endif
    for (int i = 0; i < constraint_list.Size(); i++)
    {
-      z(constraint_list[i]) = 0.0;
+      zd[cld[i]] = 0.0;
    }
 
    A->Mult(z, y);
 
+// #if defined(MFEM_USE_OPENMP)
+// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(yd, xd, cld)
+// #endif
    for (int i = 0; i < constraint_list.Size(); i++)
    {
-      y(constraint_list[i]) = x(constraint_list[i]);
+      yd[cld[i]] = xd[cld[i]];
    }
 }
 

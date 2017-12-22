@@ -119,6 +119,7 @@ Vector &Vector::operator=(const double *v)
 Vector &Vector::operator=(const Vector &v)
 {
    SetSize(v.Size());
+   device = v.device;
    for (int i = 0; i < Size(); i++)
    {
       data[i] = v.data[i];

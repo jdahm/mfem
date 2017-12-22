@@ -12,166 +12,117 @@
 // Implementation of FESpaceIntegrators.
 
 #include "fem.hpp"
+#include <stdio.h>
+#include <omp.h>
 
 namespace mfem
 {
 
-void Get1DBasis(const FiniteElement *fe, int ir_order,
-                DenseMatrix &shape1d)
+template <int D, typename T = double> class TensorArray;
+
+template <typename T>
+class TensorArray<1,T>
 {
-   // Get the corresponding tensor basis element
-   const TensorBasisElement *tfe = dynamic_cast<const TensorBasisElement*>(fe);
+   T *d;
+   const int n1;
+public:
+   TensorArray(const T *_d, const int _n1) :
+      d(const_cast<T*>(_d)), n1(_n1) { }
 
-   // Compute the 1d shape functions and gradients
-   const Poly_1D::Basis &basis1d = tfe->GetBasis1D();
-   const IntegrationRule &ir1d = IntRules.Get(Geometry::SEGMENT, ir_order);
+   TensorArray(const Vector &v) :
+      d(v.GetData()), n1(v.Size()) { }
 
-   const int quads1d = ir1d.GetNPoints();
-   const int dofs1d = fe->GetOrder() + 1;
+   operator T*() const { return d; }
 
-   shape1d.SetSize(dofs1d, quads1d);
+   T& operator[](const int i) { return d[i]; }
 
-   Vector u(dofs1d);
-   for (int k = 0; k < quads1d; k++)
-   {
-      const IntegrationPoint &ip = ir1d.IntPoint(k);
-      basis1d.Eval(ip.x, u);
-      for (int i = 0; i < dofs1d; i++)
-      {
-         shape1d(i, k) = u(i);
-      }
-   }
-}
+   T& operator()(const int i1)
+   { return d[i1]; }
 
-void Get1DBasis(const FiniteElement *fe, int ir_order,
-                DenseMatrix &shape1d, DenseMatrix &dshape1d)
+   const T& operator()(const int i1) const
+   { return d[i1]; }
+
+   const TensorArray& operator=(const T& v)
+   { for (int i = 0; i < n1; i++) d[i] = v; return *this; }
+};
+
+template <typename T>
+class TensorArray<2,T>
 {
-   // Get the corresponding tensor basis element
-   const TensorBasisElement *tfe = dynamic_cast<const TensorBasisElement*>(fe);
+   T *d;
+   const int n1, n2;
+public:
+   TensorArray(const T *_d, const int _n1, const int _n2) :
+      d(const_cast<T*>(_d)), n1(_n1), n2(_n2) { }
 
-   // Compute the 1d shape functions and gradients
-   const Poly_1D::Basis &basis1d = tfe->GetBasis1D();
-   const IntegrationRule &ir1d = IntRules.Get(Geometry::SEGMENT, ir_order);
+   TensorArray(DenseMatrix &m) :
+      d(m.GetData()), n1(m.Height()), n2(m.Width()) { }
 
-   const int quads1d = ir1d.GetNPoints();
-   const int dofs1d = fe->GetOrder() + 1;
+   operator T*() const { return d; }
 
-   shape1d.SetSize(dofs1d, quads1d);
-   dshape1d.SetSize(dofs1d, quads1d);
+   T& operator[](const int i) { return d[i]; }
 
-   Vector u(dofs1d);
-   Vector d(dofs1d);
-   for (int k = 0; k < quads1d; k++)
-   {
-      const IntegrationPoint &ip = ir1d.IntPoint(k);
-      basis1d.Eval(ip.x, u, d);
-      for (int i = 0; i < dofs1d; i++)
-      {
-         shape1d(i, k) = u(i);
-         dshape1d(i, k) = d(i);
-      }
-   }
-}
+   T& operator()(const int i1, const int i2)
+   { return d[i2 * n1 + i1]; }
 
-void PADiffusionIntegrator::Assemble(FiniteElementSpace *_trial_fes,
-                                     FiniteElementSpace *_test_fes)
+   const T& operator()(const int i1, const int i2) const
+   { return d[i2 * n1 + i1]; }
+
+   const TensorArray& operator=(const T& v)
+   { for (int i = 0; i < n1*n2; i++) d[i] = v; return *this; }
+};
+
+template <typename T>
+class TensorArray<3,T>
 {
-   // Assumption: trial and test fespaces are the same (no mixed forms yet)
-   fes = _trial_fes;
+   T *d;
+   const int n1, n2, n3;
+public:
+   TensorArray(const T *_d, const int _n1, const int _n2, const int _n3) :
+      d(const_cast<T*>(_d)), n1(_n1), n2(_n2), n3(_n3) { }
 
-   // Assumption: all are same finite elements
-   const FiniteElement *fe = fes->GetFE(0);
+   TensorArray(DenseTensor &t) :
+      d(t.GetData(0)), n1(t.SizeI()), n2(t.SizeJ()), n3(t.SizeK()) { }
 
-   // Set integration rule
-   int ir_order;
-   if (!IntRule)
-   {
-      const int dim = fe->GetDim();
-      if (fe->Space() == FunctionSpace::Pk)
-      {
-         ir_order = 2*fe->GetOrder() - 2;
-      }
-      else
-         // order = 2*fe.GetOrder() - 2;  // <-- this seems to work fine too
-      {
-         ir_order = 2*fe->GetOrder() + dim - 1;
-      }
+   operator T*() const { return d; }
 
-      if (fe->Space() == FunctionSpace::rQk)
-      {
-         SetIntegrationRule(&RefinedIntRules.Get(fe->GetGeomType(), ir_order));
-      }
-      else
-      {
-         SetIntegrationRule(&IntRules.Get(fe->GetGeomType(), ir_order));
-      }
-   }
-   else
-   {
-      ir_order = IntRule->GetOrder();
-   }
+   T& operator[](const int i) { return d[i]; }
 
-   // Store the 1d shape functions and gradients
-   Get1DBasis(fe, ir_order, shape1d, dshape1d);
+   T& operator()(const int i1, const int i2, const int i3)
+   { return d[(i3 * n2 + i2) * n1 + i1]; }
 
-   // Create the operator
-   const int elems   = fes->GetNE();
-   const int dim     = fe->GetDim();
-   const int quads   = IntRule->GetNPoints();
-   const int entries = dim * (dim + 1) / 2;
-   Dtensor.SetSize(entries, quads, elems);
+   const T& operator()(const int i1, const int i2, const int i3) const
+   { return d[(i3 * n2 + i2) * n1 + i1]; }
 
-   DenseMatrix invdfdx(dim, dim);
-   DenseMatrix mat(dim, dim);
-   DenseMatrix cmat(dim, dim);
+   const TensorArray& operator=(const T& v)
+   { for (int i = 0; i < n1*n2*n3; i++) d[i] = v; return *this; }
+};
 
-   Coefficient *coeff = integ->Q;
-   MatrixCoefficient *mcoeff = integ->MQ;
-   for (int e = 0; e < fes->GetNE(); e++)
-   {
-      ElementTransformation *Tr = fes->GetElementTransformation(e);
-      DenseMatrix &Dmat = Dtensor(e);
-      for (int k = 0; k < quads; k++)
-      {
-         const IntegrationPoint &ip = IntRule->IntPoint(k);
-         Tr->SetIntPoint(&ip);
-         const DenseMatrix &temp = Tr->AdjugateJacobian();
-         MultABt(temp, temp, mat);
-         mat *= ip.weight / Tr->Weight();
+template <typename T>
+class TensorArray<4,T>
+{
+   T *d;
+   const int n1, n2, n3, n4;
+public:
+   TensorArray(const T *_d, const int _n1, const int _n2, const int _n3, const int _n4) :
+      d(const_cast<T*>(_d)), n1(_n1), n2(_n2), n3(_n3), n4(_n4) { }
 
-         if (coeff != NULL)
-         {
-            const double c = coeff->Eval(*Tr, ip);
-            for (int j = 0, l = 0; j < dim; j++)
-               for (int i = j; i < dim; i++, l++)
-               {
-                  Dmat(l, k) = c * mat(i, j);
-               }
+   operator T*() const { return d; }
 
-         }
-         else if (mcoeff != NULL)
-         {
-            mcoeff->Eval(cmat, *Tr, ip);
-            for (int j = 0, l = 0; j < dim; j++)
-               for (int i = j; i < dim; i++, l++)
-               {
-                  Dmat(l, k) = cmat(i, j) * mat(i, j);
-               }
+   T& operator[](const int i) { return d[i]; }
 
-         }
-         else
-         {
-            for (int j = 0, l = 0; j < dim; j++)
-               for (int i = j; i < dim; i++, l++)
-               {
-                  Dmat(l, k) = mat(i, j);
-               }
-         }
-      }
-   }
-}
+   T& operator()(const int i1, const int i2, const int i3, const int i4)
+   { return d[((i4 * n3 + i3) * n2 + i2) * n1 + i1]; }
 
-void PADiffusionIntegrator::MultSeg_Host(const Vector &V, Vector &U)
+   const T& operator()(const int i1, const int i2, const int i3, const int i4) const
+   { return d[((i4 * n3 + i3) * n2 + i2) * n1 + i1]; }
+
+   const TensorArray& operator=(const T& v)
+   { for (int i = 0; i < n1*n2*n3*n4; i++) d[i] = v; return *this; }
+};
+
+
+void PADiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
 {
    const int dim = 1;
    const int terms = dim*(dim+1)/2;
@@ -184,23 +135,19 @@ void PADiffusionIntegrator::MultSeg_Host(const Vector &V, Vector &U)
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#if defined(MFEM_USE_OPENMP)
 #pragma omp parallel
    {
-#endif
       double *data_q = new double[quads1d * dim];
-      DenseMatrix Q(data_q, quads1d, dim);
-#if defined(MFEM_USE_OPENMP)
+      TensorArray<2> Q(data_q, quads1d, dim);
 #pragma omp for
       {
-#endif
          for (int e = 0; e < fes->GetNE(); ++e)
          {
             for (int vd = 0; vd < vdim; ++vd)
             {
                const int e_offset = dofs * (vdim * e + vd);
-               const Vector Vmat(V.GetData() + e_offset, dofs1d);
-               Vector Umat(U.GetData() + e_offset, dofs1d);
+               const TensorArray<1> Vmat(V.GetData() + e_offset, dofs1d);
+               TensorArray<1> Umat(U.GetData() + e_offset, dofs1d);
 
                // Q_k1 = dshape_j1_k1 * Vmat_j1
                Q = 0.;
@@ -231,14 +178,12 @@ void PADiffusionIntegrator::MultSeg_Host(const Vector &V, Vector &U)
                }
             }
          }
-#if defined(MFEM_USE_OPENMP)
       }
       delete [] data_q;
    }
-#endif
 }
 
-void PADiffusionIntegrator::MultQuad_Host(const Vector &V, Vector &U)
+void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
 {
    const int dim = 2;
    const int terms = dim*(dim+1)/2;
@@ -253,104 +198,118 @@ void PADiffusionIntegrator::MultQuad_Host(const Vector &V, Vector &U)
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#if defined(MFEM_USE_OPENMP)
-#pragma omp parallel
+   const double *data_V = V.GetData();
+   double *data_U = U.GetData();
+   const double *s1d = shape1d.GetData();
+   const double *ds1d = dshape1d.GetData();
+
+   const int NE = fes->GetNE();
+
+   MFEM_ASSERT(vdim == 1, "");
+
+#pragma omp target teams thread_limit(msize) is_device_ptr(data_d0, data_V, data_U, s1d, ds1d)
    {
-#endif
-      double *data_q = new double[msize * dim];
-      double *data_qq = new double[quads1d * quads1d * dim];
-      DenseMatrix Q(data_q, msize, dim);
-      DenseTensor QQ(data_qq, quads1d, quads1d, dim);
-#if defined(MFEM_USE_OPENMP)
-#pragma omp for
+      double s_shape1d[50];
+      double s_dshape1d[50];
+      double s_xy[50];
+      double s_xDy[50];
+      double s_grad[50];
+
+#pragma omp distribute
+      for (int e = 0; e < NE; ++e)
       {
-#endif
-         for (int e = 0; e < fes->GetNE(); ++e)
-         {
-            for (int vd = 0; vd < vdim; ++vd)
+#pragma omp parallel for num_threads(msize)
+         for (int x = 0; x < msize; ++x)
+            for (int id = x; id < dofs1d * quads1d; id += msize)
             {
-               const int e_offset = dofs * (vdim * e + vd);
-               const DenseMatrix Vmat(V.GetData() + e_offset, dofs1d, dofs1d);
-               DenseMatrix Umat(U.GetData() + e_offset, dofs1d, dofs1d);
+               s_shape1d[id]  = s1d[id];
+               s_dshape1d[id] = ds1d[id];
+            }
 
-               QQ = 0.;
-               for (int j2 = 0; j2 < dofs1d; ++j2)
+         const int e_offset = dofs * e;
+         const TensorArray<2> Vmat(data_V + e_offset, dofs1d, dofs1d);
+         TensorArray<2> Umat(data_U + e_offset, dofs1d, dofs1d);
+         const int d_offset = e * quads * terms;
+         const double *data_d = data_d0 + d_offset;
+
+#pragma omp parallel for num_threads(dofs1d)
+         for (int dx = 0; dx < dofs1d; ++dx)
+         {
+            double r_x[11];
+            for (int dy = 0; dy < dofs1d; ++dy) r_x[dy] = Vmat(dx, dy);
+            for (int qy = 0; qy < quads1d; ++qy)
+            {
+               double xy = 0;
+               double xDy = 0;
+               for (int dy = 0; dy < dofs1d; ++dy)
                {
-                  Q = 0.;
-                  for (int j1 = 0; j1 < dofs1d; ++j1)
-                  {
-                     const double v = Vmat(j1, j2);
-                     for (int k1 = 0; k1 < quads1d; ++k1)
-                     {
-                        Q(k1, 0) += v * dshape1d(j1, k1);
-                        Q(k1, 1) += v * shape1d(j1, k1);
-                     }
-                  }
-                  for (int k2 = 0; k2 < quads1d; ++k2)
-                  {
-                     const double s = shape1d(j2, k2);
-                     const double d = dshape1d(j2, k2);
-                     for (int k1 = 0; k1 < quads1d; ++k1)
-                     {
-                        QQ(k1, k2, 0) += Q(k1, 0) * s;
-                        QQ(k1, k2, 1) += Q(k1, 1) * d;
-                     }
-                  }
+                  xy  += r_x[dy] * s_shape1d[dy + qy * dofs1d];
+                  xDy += r_x[dy] * s_dshape1d[dy + qy * dofs1d];
                }
-
-               // QQ_c_k1_k2 = Dmat_c_d_k1_k2 * QQ_d_k1_k2
-               // NOTE: (k1, k2) = k -- 1d index over tensor product of quad points
-               const int d_offset = e * quads * terms;
-               const double *data_d = data_d0 + d_offset;
-               for (int k = 0; k < quads; ++k)
-               {
-                  const double D00 = data_d[terms*k + 0];
-                  const double D01 = data_d[terms*k + 1];
-                  const double D11 = data_d[terms*k + 2];
-
-                  const double q0 = data_qq[0*quads + k];
-                  const double q1 = data_qq[1*quads + k];
-
-                  data_qq[0*quads + k] = D00 * q0 + D01 * q1;
-                  data_qq[1*quads + k] = D01 * q0 + D11 * q1;
-               }
-
-               for (int k2 = 0; k2 < quads1d; ++k2)
-               {
-                  Q = 0.;
-                  for (int k1 = 0; k1 < quads1d; ++k1)
-                  {
-                     const double q0 = QQ(k1, k2, 0);
-                     const double q1 = QQ(k1, k2, 1);
-                     for (int i1 = 0; i1 < dofs1d; ++i1)
-                     {
-                        Q(i1, 0) += q0 * dshape1d(i1, k1);
-                        Q(i1, 1) += q1 * shape1d(i1, k1);
-                     }
-                  }
-                  for (int i2 = 0; i2 < dofs1d; ++i2)
-                  {
-                     const double s = shape1d(i2, k2);
-                     const double d = dshape1d(i2, k2);
-                     for (int i1 = 0; i1 < dofs1d; ++i1)
-                     {
-                        Umat(i1, i2) +=
-                           Q(i1, 0) * s +
-                           Q(i1, 1) * d;
-                     }
-                  }
-               }
+               s_xy[dx + qy * dofs1d]  = xy;
+               s_xDy[dx + qy * dofs1d] = xDy;
             }
          }
-#if defined(MFEM_USE_OPENMP)
+
+#pragma omp parallel for num_threads(quads1d)
+         for (int qy = 0; qy < quads1d; ++qy)
+            for (int qx = 0; qx < quads1d; ++qx)
+            {
+               double gradX = 0, gradY = 0;
+               for (int dx = 0; dx < dofs1d; ++dx)
+               {
+                  gradX += s_xy[dx + qy * dofs1d]  * s_dshape1d[dx + qx * dofs1d];
+                  gradY += s_xDy[dx + qy * dofs1d] * s_shape1d[dx + qx * dofs1d];
+               }
+
+               const int q = qy * quads1d + qx;
+               const double O11 = data_d[terms*q + 0];
+               const double O12 = data_d[terms*q + 1];
+               const double O22 = data_d[terms*q + 2];
+
+               s_grad[0 * quads + qx + qy * quads1d] = (O11 * gradX) + (O12 * gradY);
+               s_grad[1 * quads + qx + qy * quads1d] = (O12 * gradX) + (O22 * gradY);
+            }
+
+#pragma omp parallel for num_threads(quads1d)
+         for (int qx = 0; qx < quads1d; ++qx)
+         {
+            double r_x[11];
+            double r_y[11];
+            for (int qy = 0; qy < quads1d; ++qy)
+            {
+               r_x[qy] = s_grad[0 * quads + qx + qy * quads1d];
+               r_y[qy] = s_grad[1 * quads + qx + qy * quads1d];
+            }
+            for (int dy = 0; dy < dofs1d; ++dy)
+            {
+               double xy  = 0;
+               double xDy = 0;
+               for (int qy = 0; qy < quads1d; ++qy)
+               {
+                  xy  += r_x[qy] * s_shape1d[dy + qy * dofs1d];
+                  xDy += r_y[qy] * s_dshape1d[dy + qy * dofs1d];
+               }
+               s_xy[dy + qx * dofs1d] = xy;
+               s_xDy[dy + qx * dofs1d] = xDy;
+            }
+         }
+
+#pragma omp parallel for num_threads(dofs1d)
+         for (int dx = 0; dx < dofs1d; ++dx)
+            for (int dy = 0; dy < dofs1d; ++dy)
+            {
+               double s = 0;
+               for (int qx = 0; qx < quads1d; ++qx)
+                  s += ((s_xy[dy + qx * dofs1d] * s_dshape1d[dx + qx * dofs1d]) +
+                        (s_xDy[dy + qx * dofs1d] * s_shape1d[dx + qx * dofs1d]));
+               Umat[dx + dy * dofs1d] += s;
+            }
       }
-      delete [] data_q;
-      delete [] data_qq;
    }
-#endif
 }
 
-void PADiffusionIntegrator::MultHex_Host(const Vector &V, Vector &U)
+void PADiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
 {
    const int dim = 3;
    const int terms = dim*(dim+1)/2;
@@ -365,29 +324,25 @@ void PADiffusionIntegrator::MultHex_Host(const Vector &V, Vector &U)
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#if defined(MFEM_USE_OPENMP)
 #pragma omp parallel
    {
-#endif
       double *data_q = new double[msize * dim];
       double *data_qq = new double[msize * msize * dim];
       double *data_qqq = new double[quads1d * quads1d * quads1d * dim];
-      DenseMatrix Q(data_q, msize, dim);
-      DenseTensor QQ(data_qq, msize, msize, dim);
-      DenseTensor QQQ0(data_qqq + 0*quads, quads1d, quads1d, quads1d);
-      DenseTensor QQQ1(data_qqq + 1*quads, quads1d, quads1d, quads1d);
-      DenseTensor QQQ2(data_qqq + 2*quads, quads1d, quads1d, quads1d);
-#if defined(MFEM_USE_OPENMP)
+      TensorArray<2> Q(data_q, msize, dim);
+      TensorArray<3> QQ(data_qq, msize, msize, dim);
+      TensorArray<3> QQQ0(data_qqq + 0*quads, quads1d, quads1d, quads1d);
+      TensorArray<3> QQQ1(data_qqq + 1*quads, quads1d, quads1d, quads1d);
+      TensorArray<3> QQQ2(data_qqq + 2*quads, quads1d, quads1d, quads1d);
 #pragma omp for
       {
-#endif
          for (int e = 0; e < fes->GetNE(); ++e)
          {
             for (int vd = 0; vd < vdim; ++vd)
             {
                const int e_offset = dofs * (vdim * e + vd);
-               const DenseTensor Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
-               DenseTensor Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+               const TensorArray<3> Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+               TensorArray<3> Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
 
                // QQQ_0_k1_k2_k3 = dshape_j1_k1 * shape_j2_k2  * shape_j3_k3  * Vmat_j1_j2_j3
                // QQQ_1_k1_k2_k3 = shape_j1_k1  * dshape_j2_k2 * shape_j3_k3  * Vmat_j1_j2_j3
@@ -503,125 +458,14 @@ void PADiffusionIntegrator::MultHex_Host(const Vector &V, Vector &U)
                }
             }
          }
-#if defined(MFEM_USE_OPENMP)
       }
       delete [] data_q;
       delete [] data_qq;
       delete [] data_qqq;
    }
-#endif
 }
 
-void PADiffusionIntegrator::AddMult(const Vector &x, Vector &y)
-{
-   const int dim = fes->GetMesh()->Dimension();
-   const bool use_target = fes->GetMesh()->device.UseTarget();
-
-   if (use_target)
-   {
-      switch (dim)
-      {
-      case 1: MultSeg_Device(x, y); break;
-      case 2: MultQuad_Device(x, y); break;
-      case 3: MultHex_Device(x, y); break;
-      default: mfem_error("Not yet supported"); break;
-      }
-   }
-   else
-   {
-      switch (dim)
-      {
-      case 1: MultSeg_Host(x, y); break;
-      case 2: MultQuad_Host(x, y); break;
-      case 3: MultHex_Host(x, y); break;
-      default: mfem_error("Not yet supported"); break;
-      }
-   }
-}
-
-
-void PAMassIntegrator::Assemble(FiniteElementSpace *_trial_fes,
-                                FiniteElementSpace *_test_fes)
-{
-   // Assumption: trial and test fespaces are the same (no mixed forms yet)
-   fes = _trial_fes;
-
-   // Assumption: all are same finite elements
-   const FiniteElement *fe = fes->GetFE(0);
-
-   // Set integration rule
-   int ir_order;
-   if (!IntRule)
-   {
-      // int order = 2 * el.GetOrder();
-      // ir_order = 2 * fe.GetOrder() + Trans.OrderW();
-      ir_order = 2 * fe->GetOrder() + 1;
-
-      if (fe->Space() == FunctionSpace::rQk)
-      {
-         SetIntegrationRule(&RefinedIntRules.Get(fe->GetGeomType(), ir_order));
-      }
-      else
-      {
-         SetIntegrationRule(&IntRules.Get(fe->GetGeomType(), ir_order));
-      }
-   }
-   else
-   {
-      ir_order = IntRule->GetOrder();
-   }
-
-   Get1DBasis(fes->GetFE(0), ir_order, shape1d);
-
-   // Create the operator
-   const int nelem   = fes->GetNE();
-   const int dim     = fe->GetDim();
-   const int quads   = IntRule->GetNPoints();
-   const int vdim    = integ ? 1 : dim;
-   Dtensor.SetSize(quads, vdim, nelem);
-
-   Coefficient *coeff = NULL;
-   VectorCoefficient *vcoeff = NULL;
-   if (integ)
-   {
-      coeff = integ->Q;
-   }
-   else if (vinteg)
-   {
-      coeff = vinteg->Q;
-      vcoeff = vinteg->VQ;
-      if (vinteg->MQ != NULL) mfem_error("Not supported.");
-   }
-   DenseMatrix invdfdx(dim, dim);
-   DenseMatrix mat(dim, dim);
-   Vector cv(vdim);
-   for (int e = 0; e < fes->GetNE(); e++)
-   {
-      ElementTransformation *Tr = fes->GetElementTransformation(e);
-      DenseMatrix &Dmat = Dtensor(e);
-      for (int k = 0; k < quads; k++)
-      {
-         const IntegrationPoint &ip = IntRule->IntPoint(k);
-         Tr->SetIntPoint(&ip);
-         const double weight = ip.weight * Tr->Weight();
-         if (vcoeff != NULL)
-         {
-            vcoeff->Eval(cv, *Tr, ip);
-         }
-         for (int v = 0; v < vdim; v++)
-         {
-            Dmat(k, v) = weight;
-            if (coeff != NULL) Dmat(k, v) *= coeff->Eval(*Tr, ip);
-            else if (vcoeff != NULL)
-            {
-               Dmat(k, v) *= cv(v);
-            }
-         }
-      }
-   }
-}
-
-void PAMassIntegrator::MultSeg_Host(const Vector &V, Vector &U)
+void PAMassIntegrator::MultSeg_Device(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
@@ -632,23 +476,19 @@ void PAMassIntegrator::MultSeg_Host(const Vector &V, Vector &U)
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#if defined(MFEM_USE_OPENMP)
 #pragma omp parallel
    {
-#endif
       double *data_q = new double[quads1d];
-      Vector Q(data_q, quads1d);
-#if defined(MFEM_USE_OPENMP)
+      TensorArray<1> Q(data_q, quads1d);
 #pragma omp for
       {
-#endif
          for (int e = 0; e < fes->GetNE(); ++e)
          {
             for (int vd = 0; vd < vdim; ++vd)
             {
                const int e_offset = dofs * (vdim * e + vd);
-               const Vector Vmat(V.GetData() + e_offset, dofs1d);
-               Vector Umat(U.GetData() + e_offset, dofs1d);
+               const TensorArray<1> Vmat(V.GetData() + e_offset, dofs1d);
+               TensorArray<1> Umat(U.GetData() + e_offset, dofs1d);
 
                Q = 0.;
                for (int j1 = 0; j1 < dofs1d; ++j1)
@@ -674,14 +514,12 @@ void PAMassIntegrator::MultSeg_Host(const Vector &V, Vector &U)
                }
             }
          }
-#if defined(MFEM_USE_OPENMP)
       }
       delete [] data_q;
    }
-#endif
 }
 
-void PAMassIntegrator::MultQuad_Host(const Vector &V, Vector &U)
+void PAMassIntegrator::MultQuad_Device(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
@@ -693,25 +531,21 @@ void PAMassIntegrator::MultQuad_Host(const Vector &V, Vector &U)
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#if defined(MFEM_USE_OPENMP)
 #pragma omp parallel
    {
-#endif
       double *data_q = new double[msize];
       double *data_qq = new double[quads1d * quads1d];
-      Vector Q(data_q, msize);
-      DenseMatrix QQ(data_qq, quads1d, quads1d);
-#if defined(MFEM_USE_OPENMP)
+      TensorArray<1> Q(data_q, msize);
+      TensorArray<2> QQ(data_qq, quads1d, quads1d);
 #pragma omp for
       {
-#endif
          for (int e = 0; e < fes->GetNE(); ++e)
          {
             for (int vd = 0; vd < vdim; ++vd)
             {
                const int e_offset = dofs * (vdim * e + vd);
-               const DenseMatrix Vmat(V.GetData() + e_offset, dofs1d, dofs1d);
-               DenseMatrix Umat(U.GetData() + e_offset, dofs1d, dofs1d);
+               const TensorArray<2> Vmat(V.GetData() + e_offset, dofs1d, dofs1d);
+               TensorArray<2> Umat(U.GetData() + e_offset, dofs1d, dofs1d);
 
                QQ = 0.;
                for (int j2 = 0; j2 < dofs1d; ++j2)
@@ -763,15 +597,13 @@ void PAMassIntegrator::MultQuad_Host(const Vector &V, Vector &U)
                }
             }
          }
-#if defined(MFEM_USE_OPENMP)
       }
       delete [] data_q;
       delete [] data_qq;
    }
-#endif
 }
 
-void PAMassIntegrator::MultHex_Host(const Vector &V, Vector &U)
+void PAMassIntegrator::MultHex_Device(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
@@ -783,27 +615,23 @@ void PAMassIntegrator::MultHex_Host(const Vector &V, Vector &U)
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#if defined(MFEM_USE_OPENMP)
 #pragma omp parallel
    {
-#endif
       double *data_q = new double[msize];
       double *data_qq = new double[msize * msize];
       double *data_qqq = new double[quads1d * quads1d * quads1d];
-      Vector Q(data_q, msize);
-      DenseMatrix QQ(data_qq, msize, msize);
-      DenseTensor QQQ(data_qqq, quads1d, quads1d, quads1d);
-#if defined(MFEM_USE_OPENMP)
+      TensorArray<1> Q(data_q, msize);
+      TensorArray<2> QQ(data_qq, msize, msize);
+      TensorArray<3> QQQ(data_qqq, quads1d, quads1d, quads1d);
 #pragma omp for
       {
-#endif
          for (int e = 0; e < fes->GetNE(); ++e)
          {
             for (int vd = 0; vd < vdim; ++vd)
             {
                const int e_offset = dofs * (vdim * e + vd);
-               const DenseTensor Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
-               DenseTensor Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+               const TensorArray<3> Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+               TensorArray<3> Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
 
                // QQQ_k1_k2_k3 = shape_j1_k1 * shape_j2_k2  * shape_j3_k3  * Vmat_j1_j2_j3
                QQQ = 0.;
@@ -883,39 +711,10 @@ void PAMassIntegrator::MultHex_Host(const Vector &V, Vector &U)
                }
             }
          }
-#if defined(MFEM_USE_OPENMP)
       }
       delete [] data_q;
       delete [] data_qq;
       delete [] data_qqq;
-   }
-#endif
-}
-
-void PAMassIntegrator::AddMult(const Vector &x, Vector &y)
-{
-   const int dim = fes->GetMesh()->Dimension();
-   const bool use_target = fes->GetMesh()->device.UseTarget();
-
-   if (use_target)
-   {
-      switch (dim)
-      {
-      case 1: MultSeg_Device(x, y); break;
-      case 2: MultQuad_Device(x, y); break;
-      case 3: MultHex_Device(x, y); break;
-      default: mfem_error("Not yet supported"); break;
-      }
-   }
-   else
-   {
-      switch (dim)
-      {
-      case 1: MultSeg_Host(x, y); break;
-      case 2: MultQuad_Host(x, y); break;
-      case 3: MultHex_Host(x, y); break;
-      default: mfem_error("Not yet supported"); break;
-      }
    }
 }
 
