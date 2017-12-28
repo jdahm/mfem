@@ -297,6 +297,10 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    int i;
    double r0, den, nom, nom0, betanom, alpha, beta;
 
+   r.device = x.device;
+   d.device = x.device;
+   z.device = x.device;
+
    if (iterative_mode)
    {
       oper->Mult(x, r);
@@ -334,7 +338,6 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       final_norm = sqrt(nom);
       return;
    }
-
    oper->Mult(d, z);  // z = A d
    den = Dot(z, d);
    MFEM_ASSERT(IsFinite(den), "den = " << den);

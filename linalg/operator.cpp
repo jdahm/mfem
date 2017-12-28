@@ -112,12 +112,13 @@ void ConstrainedOperator::EliminateRHS(const Vector &x, Vector &b) const
    double *bd = b.GetData();
    const double *xd = x.GetData();
    const int *cld = constraint_list.GetData();
+   const int clsize = constraint_list.Size();
 
    const bool use_target = x.device.UseTarget();
-// #if defined(MFEM_USE_OPENMP)
-// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(wd, xd, cld)
-// #endif
-   for (int i = 0; i < constraint_list.Size(); i++)
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(wd, xd, cld)
+#endif
+   for (int i = 0; i < clsize; i++)
    {
       wd[cld[i]] = xd[cld[i]];
    }
@@ -126,10 +127,10 @@ void ConstrainedOperator::EliminateRHS(const Vector &x, Vector &b) const
 
    b -= z;
 
-// #if defined(MFEM_USE_OPENMP)
-// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(bd, xd, cld)
-// #endif
-   for (int i = 0; i < constraint_list.Size(); i++)
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(bd, xd, cld)
+#endif
+   for (int i = 0; i < clsize; i++)
    {
       bd[cld[i]] = xd[cld[i]];
    }
@@ -149,22 +150,23 @@ void ConstrainedOperator::Mult(const Vector &x, Vector &y) const
    double *zd = z.GetData();
    const double *xd = x.GetData();
    const int *cld = constraint_list.GetData();
+   const int clsize = constraint_list.Size();
 
    const bool use_target = x.device.UseTarget();
-// #if defined(MFEM_USE_OPENMP)
-// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zd, cld)
-// #endif
-   for (int i = 0; i < constraint_list.Size(); i++)
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zd, cld)
+#endif
+   for (int i = 0; i < clsize; i++)
    {
       zd[cld[i]] = 0.0;
    }
 
    A->Mult(z, y);
 
-// #if defined(MFEM_USE_OPENMP)
-// #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(yd, xd, cld)
-// #endif
-   for (int i = 0; i < constraint_list.Size(); i++)
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(yd, xd, cld)
+#endif
+   for (int i = 0; i < clsize; i++)
    {
       yd[cld[i]] = xd[cld[i]];
    }

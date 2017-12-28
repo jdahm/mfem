@@ -118,11 +118,16 @@ Vector &Vector::operator=(const double *v)
 
 Vector &Vector::operator=(const Vector &v)
 {
-   SetSize(v.Size());
    device = v.device;
+   SetSize(v.Size());
+   double *d = GetData();
+   const double *vd = v.GetData();
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d, vd)
+#endif
    for (int i = 0; i < Size(); i++)
    {
-      data[i] = v.data[i];
+      d[i] = vd[i];
    }
    return *this;
 }
@@ -355,6 +360,10 @@ void add(const double a, const Vector &x, const Vector &y, Vector &z)
       const double *yp = y.data;
       double       *zp = z.data;
 
+#if defined(MFEM_USE_OPENMP)
+   const bool use_target = (x.device.UseTarget() && y.device.UseTarget() && z.device.UseTarget());
+#pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zp, xp, yp)
+#endif
       for (int i = 0; i < s; i++)
       {
          zp[i] = a * (xp[i] + yp[i]);
@@ -397,6 +406,10 @@ void add(const double a, const Vector &x,
       const double *yp = y.data;
       double       *zp = z.data;
 
+#if defined(MFEM_USE_OPENMP)
+   const bool use_target = (x.device.UseTarget() && y.device.UseTarget() && z.device.UseTarget());
+#pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zp, xp, yp)
+#endif
       for (int i = 0; i < s; i++)
       {
          zp[i] = a * xp[i] + b * yp[i];
@@ -449,6 +462,10 @@ void subtract(const double a, const Vector &x, const Vector &y, Vector &z)
       const double *yp = y.data;
       double       *zp = z.data;
 
+#if defined(MFEM_USE_OPENMP)
+   const bool use_target = (x.device.UseTarget() && y.device.UseTarget() && z.device.UseTarget());
+#pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zp, xp, yp)
+#endif
       for (int i = 0; i < s; i++)
       {
          zp[i] = a * (xp[i] - yp[i]);
@@ -530,34 +547,47 @@ void Vector::SetSubVector(const Array<int> &dofs, const double value)
 
 void Vector::SetSubVector(const Array<int> &dofs, const Vector &elemvect)
 {
-   int i, j, n = dofs.Size();
+   double *d = GetData();
+   const int *dofsd = dofs.GetData();
+   const double *evd = elemvect.GetData();
 
-   for (i = 0; i < n; i++)
+   const int n = dofs.Size();
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for is_device_ptr(d, dofsd, evd)
+#endif
+   for (int i = 0; i < n; i++)
    {
-      if ((j=dofs[i]) >= 0)
+      int j = dofsd[i];
+      if (j >= 0)
       {
-         data[j] = elemvect(i);
+         d[j] = evd[i];
       }
       else
       {
-         data[-1-j] = -elemvect(i);
+         d[-1-j] = -evd[i];
       }
    }
 }
 
 void Vector::SetSubVector(const Array<int> &dofs, double *elem_data)
 {
-   int i, j, n = dofs.Size();
+   double *d = GetData();
+   const int *dofsd = dofs.GetData();
 
-   for (i = 0; i < n; i++)
+   const int n = dofs.Size();
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for is_device_ptr(d, dofsd, elem_data)
+#endif
+   for (int i = 0; i < n; i++)
    {
-      if ((j=dofs[i]) >= 0)
+      const int j = dofsd[i];
+      if (j >= 0)
       {
-         data[j] = elem_data[i];
+         d[j] = elem_data[i];
       }
       else
       {
-         data[-1-j] = -elem_data[i];
+         d[-1-j] = -elem_data[i];
       }
    }
 }
