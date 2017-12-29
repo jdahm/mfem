@@ -78,12 +78,15 @@ int main(int argc, char *argv[])
    }
    args.PrintOptions(cout);
 
-   if (!use_accelerator) { UseHost(); }
-
    // 2. Read the mesh from the given mesh file. We can handle triangular,
    //    quadrilateral, tetrahedral, hexahedral, surface and volume meshes with
    //    the same code.
-   Mesh *mesh = new DeviceMesh(mesh_file, 1, 1);
+   Mesh *mesh = new Mesh(mesh_file, 1, 1);
+   if (use_accelerator)
+   {
+      // Shortcut: use DeviceMesh
+      mesh->device.UseAcc();
+   }
    int dim = mesh->Dimension();
 
    // 3. Refine the mesh to increase the resolution. In this example we do
@@ -149,7 +152,16 @@ int main(int argc, char *argv[])
    // 8. Set up the bilinear form a(.,.) on the finite element space
    //    corresponding to the Laplacian operator -Delta, by adding the Diffusion
    //    domain integrator.
-   DeviceVector B, X;
+   Vector B, X;
+   if (use_accelerator)
+   {
+      // Shortcut: use DeviceVector instead
+      B.device.UseAcc();
+      X.device.UseAcc();
+   }
+   cout << "Assembling the bilinear form ..." << flush;
+   tic_toc.Clear();
+   tic_toc.Start();
    BilinearForm *a = new BilinearForm(fespace);
    // a->AddDomainIntegrator(new DiffusionIntegrator(one));
    // Can add a custom FESpaceIntegrator in this way:
@@ -172,12 +184,19 @@ int main(int argc, char *argv[])
       A_sp.MakeRef(static_cast<SparseMatrix&>(*A));
    }
 
+   tic_toc.Stop();
+   cout << " done, " << tic_toc.RealTime() << "s." << endl;
+
    // 9. Assemble the bilinear form and the corresponding linear system,
    //    applying any necessary transformations such as: eliminating boundary
    //    conditions, applying conforming constraints for non-conforming AMR,
    //    static condensation, etc.
 
    cout << "Size of linear system: " << A->Height() << endl;
+
+   cout << "Solving the linear system ..." << flush;
+   tic_toc.Clear();
+   tic_toc.Start();
 
 #ifndef MFEM_USE_SUITESPARSE
    // 10. Define a simple symmetric Gauss-Seidel preconditioner and use it to
@@ -206,6 +225,9 @@ int main(int argc, char *argv[])
 
    // 11. Recover the solution as a finite element grid function.
    a->RecoverFEMSolution(X, *b, x);
+
+   tic_toc.Stop();
+   cout << " done, " << tic_toc.RealTime() << "s." << endl;
 
    // 12. Save the refined mesh and the solution. This output can be viewed later
    //     using GLVis: "glvis -m refined.mesh -g sol.gf".

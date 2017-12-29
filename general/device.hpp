@@ -28,9 +28,11 @@ struct DeviceSpec
    };
 
    enum Class type;
-   int id;
+   int id;  /// Will be used in the near future to denote the device number for OpenMP
 
    DeviceSpec() : type(HOST), id(0) { }
+
+   void UseAcc() { type = ACCEL; }
    bool UseTarget() const { return (type == ACCEL) && (!skip_target); }
 };
 

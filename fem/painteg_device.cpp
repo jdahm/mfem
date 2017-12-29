@@ -140,41 +140,39 @@ void PADiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
       double *data_q = new double[quads1d * dim];
       TensorArray<2> Q(data_q, quads1d, dim);
 #pragma omp for
+      for (int e = 0; e < fes->GetNE(); ++e)
       {
-         for (int e = 0; e < fes->GetNE(); ++e)
+         for (int vd = 0; vd < vdim; ++vd)
          {
-            for (int vd = 0; vd < vdim; ++vd)
+            const int e_offset = dofs * (vdim * e + vd);
+            const TensorArray<1> Vmat(V.GetData() + e_offset, dofs1d);
+            TensorArray<1> Umat(U.GetData() + e_offset, dofs1d);
+
+            // Q_k1 = dshape_j1_k1 * Vmat_j1
+            Q = 0.;
+            for (int j1 = 0; j1 < dofs1d; ++j1)
             {
-               const int e_offset = dofs * (vdim * e + vd);
-               const TensorArray<1> Vmat(V.GetData() + e_offset, dofs1d);
-               TensorArray<1> Umat(U.GetData() + e_offset, dofs1d);
-
-               // Q_k1 = dshape_j1_k1 * Vmat_j1
-               Q = 0.;
-               for (int j1 = 0; j1 < dofs1d; ++j1)
-               {
-                  const double v = Vmat(j1);
-                  for (int k1 = 0; k1 < quads1d; ++k1)
-                  {
-                     Q(k1, 0) += v * dshape1d(j1, k1);
-                  }
-               }
-
-               const int d_offset = e * quads * terms;
-               const double *data_d = data_d0 + d_offset;
-               for (int k = 0; k < quads; ++k)
-               {
-                  data_q[k] *= data_d[k];
-               }
-
-               // Umat_k1 = dshape_j1_k1 * Q_k1
+               const double v = Vmat(j1);
                for (int k1 = 0; k1 < quads1d; ++k1)
                {
-                  const double q = Q(k1, 0);
-                  for (int i1 = 0; i1 < dofs1d; ++i1)
-                  {
-                     Umat(i1) += q * dshape1d(i1, k1);
-                  }
+                  Q(k1, 0) += v * dshape1d(j1, k1);
+               }
+            }
+
+            const int d_offset = e * quads * terms;
+            const double *data_d = data_d0 + d_offset;
+            for (int k = 0; k < quads; ++k)
+            {
+               data_q[k] *= data_d[k];
+            }
+
+            // Umat_k1 = dshape_j1_k1 * Q_k1
+            for (int k1 = 0; k1 < quads1d; ++k1)
+            {
+               const double q = Q(k1, 0);
+               for (int i1 = 0; i1 < dofs1d; ++i1)
+               {
+                  Umat(i1) += q * dshape1d(i1, k1);
                }
             }
          }
@@ -207,7 +205,9 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
 
    MFEM_ASSERT(vdim == 1, "");
 
-#pragma omp target teams thread_limit(msize) is_device_ptr(data_d0, data_V, data_U, s1d, ds1d)
+#pragma omp target teams                                \
+   thread_limit(msize)                                  \
+   is_device_ptr(data_d0, data_V, data_U, s1d, ds1d)
    {
       double s_shape1d[50];
       double s_dshape1d[50];
@@ -218,7 +218,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
 #pragma omp distribute
       for (int e = 0; e < NE; ++e)
       {
-#pragma omp parallel for num_threads(msize)
+#pragma omp parallel for
          for (int x = 0; x < msize; ++x)
             for (int id = x; id < dofs1d * quads1d; id += msize)
             {
@@ -232,7 +232,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
          const int d_offset = e * quads * terms;
          const double *data_d = data_d0 + d_offset;
 
-#pragma omp parallel for num_threads(dofs1d)
+#pragma omp parallel for
          for (int dx = 0; dx < dofs1d; ++dx)
          {
             double r_x[11];
@@ -251,7 +251,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
             }
          }
 
-#pragma omp parallel for num_threads(quads1d)
+#pragma omp parallel for
          for (int qy = 0; qy < quads1d; ++qy)
             for (int qx = 0; qx < quads1d; ++qx)
             {
@@ -271,7 +271,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
                s_grad[1 * quads + qx + qy * quads1d] = (O12 * gradX) + (O22 * gradY);
             }
 
-#pragma omp parallel for num_threads(quads1d)
+#pragma omp parallel for
          for (int qx = 0; qx < quads1d; ++qx)
          {
             double r_x[11];
@@ -295,7 +295,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
             }
          }
 
-#pragma omp parallel for num_threads(dofs1d)
+#pragma omp parallel for
          for (int dx = 0; dx < dofs1d; ++dx)
             for (int dy = 0; dy < dofs1d; ++dy)
             {
@@ -335,126 +335,124 @@ void PADiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
       TensorArray<3> QQQ1(data_qqq + 1*quads, quads1d, quads1d, quads1d);
       TensorArray<3> QQQ2(data_qqq + 2*quads, quads1d, quads1d, quads1d);
 #pragma omp for
+      for (int e = 0; e < fes->GetNE(); ++e)
       {
-         for (int e = 0; e < fes->GetNE(); ++e)
+         for (int vd = 0; vd < vdim; ++vd)
          {
-            for (int vd = 0; vd < vdim; ++vd)
+            const int e_offset = dofs * (vdim * e + vd);
+            const TensorArray<3> Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+            TensorArray<3> Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+
+            // QQQ_0_k1_k2_k3 = dshape_j1_k1 * shape_j2_k2  * shape_j3_k3  * Vmat_j1_j2_j3
+            // QQQ_1_k1_k2_k3 = shape_j1_k1  * dshape_j2_k2 * shape_j3_k3  * Vmat_j1_j2_j3
+            // QQQ_2_k1_k2_k3 = shape_j1_k1  * shape_j2_k2  * dshape_j3_k3 * Vmat_j1_j2_j3
+            QQQ0 = 0.; QQQ1 = 0.; QQQ2 = 0.;
+            for (int j3 = 0; j3 < dofs1d; ++j3)
             {
-               const int e_offset = dofs * (vdim * e + vd);
-               const TensorArray<3> Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
-               TensorArray<3> Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
-
-               // QQQ_0_k1_k2_k3 = dshape_j1_k1 * shape_j2_k2  * shape_j3_k3  * Vmat_j1_j2_j3
-               // QQQ_1_k1_k2_k3 = shape_j1_k1  * dshape_j2_k2 * shape_j3_k3  * Vmat_j1_j2_j3
-               // QQQ_2_k1_k2_k3 = shape_j1_k1  * shape_j2_k2  * dshape_j3_k3 * Vmat_j1_j2_j3
-               QQQ0 = 0.; QQQ1 = 0.; QQQ2 = 0.;
-               for (int j3 = 0; j3 < dofs1d; ++j3)
+               QQ = 0.;
+               for (int j2 = 0; j2 < dofs1d; ++j2)
                {
-                  QQ = 0.;
-                  for (int j2 = 0; j2 < dofs1d; ++j2)
+                  Q = 0.;
+                  for (int j1 = 0; j1 < dofs1d; ++j1)
                   {
-                     Q = 0.;
-                     for (int j1 = 0; j1 < dofs1d; ++j1)
-                     {
-                        const double v = Vmat(j1, j2, j3);
-                        for (int k1 = 0; k1 < quads1d; ++k1)
-                        {
-                           Q(k1, 0) += v * dshape1d(j1, k1);
-                           Q(k1, 1) += v * shape1d(j1, k1);
-                        }
-                     }
-                     for (int k2 = 0; k2 < quads1d; ++k2)
-                     {
-                        const double s = shape1d(j2, k2);
-                        const double d = dshape1d(j2, k2);
-                        for (int k1 = 0; k1 < quads1d; ++k1)
-                        {
-                           QQ(k1, k2, 0) += Q(k1, 0) * s;
-                           QQ(k1, k2, 1) += Q(k1, 1) * d;
-                           QQ(k1, k2, 2) += Q(k1, 1) * s;
-                        }
-                     }
-                  }
-                  for (int k3 = 0; k3 < quads1d; ++k3)
-                  {
-                     const double s = shape1d(j3, k3);
-                     const double d = dshape1d(j3, k3);
-                     for (int k2 = 0; k2 < quads1d; ++k2)
-                        for (int k1 = 0; k1 < quads1d; ++k1)
-                        {
-                           QQQ0(k1, k2, k3) += QQ(k1, k2, 0) * s;
-                           QQQ1(k1, k2, k3) += QQ(k1, k2, 1) * s;
-                           QQQ2(k1, k2, k3) += QQ(k1, k2, 2) * d;
-                        }
-                  }
-               }
-
-               // QQQ_c_k1_k2_k3 = Dmat_c_d_k1_k2_k3 * QQQ_d_k1_k2_k3
-               // NOTE: (k1, k2, k3) = q -- 1d quad point index
-               const int d_offset = e * quads * terms;
-               const double *data_d = data_d0 + d_offset;
-               for (int k = 0; k < quads; ++k)
-               {
-                  const double D00 = data_d[terms*k + 0];
-                  const double D01 = data_d[terms*k + 1];
-                  const double D02 = data_d[terms*k + 2];
-                  const double D11 = data_d[terms*k + 3];
-                  const double D12 = data_d[terms*k + 4];
-                  const double D22 = data_d[terms*k + 5];
-
-                  const double q0 = data_qqq[0*quads + k];
-                  const double q1 = data_qqq[1*quads + k];
-                  const double q2 = data_qqq[2*quads + k];
-
-                  data_qqq[0*quads + k] = D00 * q0 + D01 * q1 + D02 * q2;
-                  data_qqq[1*quads + k] = D01 * q0 + D11 * q1 + D12 * q2;
-                  data_qqq[2*quads + k] = D02 * q0 + D12 * q1 + D22 * q2;
-               }
-
-               // Apply transpose of the first operator that takes V -> QQQd -- QQQd -> U
-               for (int k3 = 0; k3 < quads1d; ++k3)
-               {
-                  QQ = 0.;
-                  for (int k2 = 0; k2 < quads1d; ++k2)
-                  {
-                     Q = 0.;
+                     const double v = Vmat(j1, j2, j3);
                      for (int k1 = 0; k1 < quads1d; ++k1)
                      {
-                        const double q0 = QQQ0(k1, k2, k3);
-                        const double q1 = QQQ1(k1, k2, k3);
-                        const double q2 = QQQ2(k1, k2, k3);
-                        for (int i1 = 0; i1 < dofs1d; ++i1)
-                        {
-                           Q(i1, 0) += q0 * dshape1d(i1, k1);
-                           Q(i1, 1) += q1 * shape1d(i1, k1);
-                           Q(i1, 2) += q2 * shape1d(i1, k1);
-                        }
-                     }
-                     for (int i2 = 0; i2 < dofs1d; ++i2)
-                     {
-                        const double s = shape1d(i2, k2);
-                        const double d = dshape1d(i2, k2);
-                        for (int i1 = 0; i1 < dofs1d; ++i1)
-                        {
-                           QQ(i1, i2, 0) += Q(i1, 0) * s;
-                           QQ(i1, i2, 1) += Q(i1, 1) * d;
-                           QQ(i1, i2, 2) += Q(i1, 2) * s;
-                        }
+                        Q(k1, 0) += v * dshape1d(j1, k1);
+                        Q(k1, 1) += v * shape1d(j1, k1);
                      }
                   }
-                  for (int i3 = 0; i3 < dofs1d; ++i3)
+                  for (int k2 = 0; k2 < quads1d; ++k2)
                   {
-                     const double s = shape1d(i3, k3);
-                     const double d = dshape1d(i3, k3);
-                     for (int i2 = 0; i2 < dofs1d; ++i2)
-                        for (int i1 = 0; i1 < dofs1d; ++i1)
-                        {
-                           Umat(i1, i2, i3) +=
-                              QQ(i1, i2, 0) * s + 
-                              QQ(i1, i2, 1) * s +
-                              QQ(i1, i2, 2) * d;
-                        }
+                     const double s = shape1d(j2, k2);
+                     const double d = dshape1d(j2, k2);
+                     for (int k1 = 0; k1 < quads1d; ++k1)
+                     {
+                        QQ(k1, k2, 0) += Q(k1, 0) * s;
+                        QQ(k1, k2, 1) += Q(k1, 1) * d;
+                        QQ(k1, k2, 2) += Q(k1, 1) * s;
+                     }
                   }
+               }
+               for (int k3 = 0; k3 < quads1d; ++k3)
+               {
+                  const double s = shape1d(j3, k3);
+                  const double d = dshape1d(j3, k3);
+                  for (int k2 = 0; k2 < quads1d; ++k2)
+                     for (int k1 = 0; k1 < quads1d; ++k1)
+                     {
+                        QQQ0(k1, k2, k3) += QQ(k1, k2, 0) * s;
+                        QQQ1(k1, k2, k3) += QQ(k1, k2, 1) * s;
+                        QQQ2(k1, k2, k3) += QQ(k1, k2, 2) * d;
+                     }
+               }
+            }
+
+            // QQQ_c_k1_k2_k3 = Dmat_c_d_k1_k2_k3 * QQQ_d_k1_k2_k3
+            // NOTE: (k1, k2, k3) = q -- 1d quad point index
+            const int d_offset = e * quads * terms;
+            const double *data_d = data_d0 + d_offset;
+            for (int k = 0; k < quads; ++k)
+            {
+               const double D00 = data_d[terms*k + 0];
+               const double D01 = data_d[terms*k + 1];
+               const double D02 = data_d[terms*k + 2];
+               const double D11 = data_d[terms*k + 3];
+               const double D12 = data_d[terms*k + 4];
+               const double D22 = data_d[terms*k + 5];
+
+               const double q0 = data_qqq[0*quads + k];
+               const double q1 = data_qqq[1*quads + k];
+               const double q2 = data_qqq[2*quads + k];
+
+               data_qqq[0*quads + k] = D00 * q0 + D01 * q1 + D02 * q2;
+               data_qqq[1*quads + k] = D01 * q0 + D11 * q1 + D12 * q2;
+               data_qqq[2*quads + k] = D02 * q0 + D12 * q1 + D22 * q2;
+            }
+
+            // Apply transpose of the first operator that takes V -> QQQd -- QQQd -> U
+            for (int k3 = 0; k3 < quads1d; ++k3)
+            {
+               QQ = 0.;
+               for (int k2 = 0; k2 < quads1d; ++k2)
+               {
+                  Q = 0.;
+                  for (int k1 = 0; k1 < quads1d; ++k1)
+                  {
+                     const double q0 = QQQ0(k1, k2, k3);
+                     const double q1 = QQQ1(k1, k2, k3);
+                     const double q2 = QQQ2(k1, k2, k3);
+                     for (int i1 = 0; i1 < dofs1d; ++i1)
+                     {
+                        Q(i1, 0) += q0 * dshape1d(i1, k1);
+                        Q(i1, 1) += q1 * shape1d(i1, k1);
+                        Q(i1, 2) += q2 * shape1d(i1, k1);
+                     }
+                  }
+                  for (int i2 = 0; i2 < dofs1d; ++i2)
+                  {
+                     const double s = shape1d(i2, k2);
+                     const double d = dshape1d(i2, k2);
+                     for (int i1 = 0; i1 < dofs1d; ++i1)
+                     {
+                        QQ(i1, i2, 0) += Q(i1, 0) * s;
+                        QQ(i1, i2, 1) += Q(i1, 1) * d;
+                        QQ(i1, i2, 2) += Q(i1, 2) * s;
+                     }
+                  }
+               }
+               for (int i3 = 0; i3 < dofs1d; ++i3)
+               {
+                  const double s = shape1d(i3, k3);
+                  const double d = dshape1d(i3, k3);
+                  for (int i2 = 0; i2 < dofs1d; ++i2)
+                     for (int i1 = 0; i1 < dofs1d; ++i1)
+                     {
+                        Umat(i1, i2, i3) +=
+                           QQ(i1, i2, 0) * s + 
+                           QQ(i1, i2, 1) * s +
+                           QQ(i1, i2, 2) * d;
+                     }
                }
             }
          }
@@ -481,36 +479,34 @@ void PAMassIntegrator::MultSeg_Device(const Vector &V, Vector &U)
       double *data_q = new double[quads1d];
       TensorArray<1> Q(data_q, quads1d);
 #pragma omp for
+      for (int e = 0; e < fes->GetNE(); ++e)
       {
-         for (int e = 0; e < fes->GetNE(); ++e)
+         for (int vd = 0; vd < vdim; ++vd)
          {
-            for (int vd = 0; vd < vdim; ++vd)
+            const int e_offset = dofs * (vdim * e + vd);
+            const TensorArray<1> Vmat(V.GetData() + e_offset, dofs1d);
+            TensorArray<1> Umat(U.GetData() + e_offset, dofs1d);
+
+            Q = 0.;
+            for (int j1 = 0; j1 < dofs1d; ++j1)
             {
-               const int e_offset = dofs * (vdim * e + vd);
-               const TensorArray<1> Vmat(V.GetData() + e_offset, dofs1d);
-               TensorArray<1> Umat(U.GetData() + e_offset, dofs1d);
-
-               Q = 0.;
-               for (int j1 = 0; j1 < dofs1d; ++j1)
-               {
-                  const double v = Vmat(j1);
-                  for (int k1 = 0; k1 < quads1d; ++k1)
-                  {
-                     Q(k1) += v * shape1d(j1, k1);
-                  }
-               }
-
-               const int d_offset = e * quads;
-               const double *data_d = data_d0 + d_offset;
-               for (int k = 0; k < quads; ++k) { data_q[k] *= data_d[k]; }
-
+               const double v = Vmat(j1);
                for (int k1 = 0; k1 < quads1d; ++k1)
                {
-                  const double q = Q(k1);
-                  for (int i1 = 0; i1 < dofs1d; ++i1)
-                  {
-                     Umat(i1) += q * shape1d(i1, k1);
-                  }
+                  Q(k1) += v * shape1d(j1, k1);
+               }
+            }
+
+            const int d_offset = e * quads;
+            const double *data_d = data_d0 + d_offset;
+            for (int k = 0; k < quads; ++k) { data_q[k] *= data_d[k]; }
+
+            for (int k1 = 0; k1 < quads1d; ++k1)
+            {
+               const double q = Q(k1);
+               for (int i1 = 0; i1 < dofs1d; ++i1)
+               {
+                  Umat(i1) += q * shape1d(i1, k1);
                }
             }
          }
@@ -538,61 +534,59 @@ void PAMassIntegrator::MultQuad_Device(const Vector &V, Vector &U)
       TensorArray<1> Q(data_q, msize);
       TensorArray<2> QQ(data_qq, quads1d, quads1d);
 #pragma omp for
+      for (int e = 0; e < fes->GetNE(); ++e)
       {
-         for (int e = 0; e < fes->GetNE(); ++e)
+         for (int vd = 0; vd < vdim; ++vd)
          {
-            for (int vd = 0; vd < vdim; ++vd)
+            const int e_offset = dofs * (vdim * e + vd);
+            const TensorArray<2> Vmat(V.GetData() + e_offset, dofs1d, dofs1d);
+            TensorArray<2> Umat(U.GetData() + e_offset, dofs1d, dofs1d);
+
+            QQ = 0.;
+            for (int j2 = 0; j2 < dofs1d; ++j2)
             {
-               const int e_offset = dofs * (vdim * e + vd);
-               const TensorArray<2> Vmat(V.GetData() + e_offset, dofs1d, dofs1d);
-               TensorArray<2> Umat(U.GetData() + e_offset, dofs1d, dofs1d);
-
-               QQ = 0.;
-               for (int j2 = 0; j2 < dofs1d; ++j2)
+               Q = 0.;
+               for (int j1 = 0; j1 < dofs1d; ++j1)
                {
-                  Q = 0.;
-                  for (int j1 = 0; j1 < dofs1d; ++j1)
-                  {
-                     const double v = Vmat(j1, j2);
-                     for (int k1 = 0; k1 < quads1d; ++k1)
-                     {
-                        Q(k1) += v * shape1d(j1, k1);
-                     }
-                  }
-                  for (int k2 = 0; k2 < quads1d; ++k2)
-                  {
-                     const double s = shape1d(j2, k2);
-                     for (int k1 = 0; k1 < quads1d; ++k1)
-                     {
-                        QQ(k1, k2) += Q(k1) * s;
-                     }
-                  }
-               }
-
-               // QQ_c_k1_k2 = Dmat_c_d_k1_k2 * QQ_d_k1_k2
-               // NOTE: (k1, k2) = k -- 1d index over tensor product of quad points
-               const int d_offset = e * quads;
-               const double *data_d = data_d0 + d_offset;
-               for (int k = 0; k < quads; ++k) { data_qq[k] *= data_d[k]; }
-
-               for (int k2 = 0; k2 < quads1d; ++k2)
-               {
-                  Q = 0.;
+                  const double v = Vmat(j1, j2);
                   for (int k1 = 0; k1 < quads1d; ++k1)
                   {
-                     const double q = QQ(k1, k2);
-                     for (int i1 = 0; i1 < dofs1d; ++i1)
-                     {
-                        Q(i1) += q * shape1d(i1, k1);
-                     }
+                     Q(k1) += v * shape1d(j1, k1);
                   }
-                  for (int i2 = 0; i2 < dofs1d; ++i2)
+               }
+               for (int k2 = 0; k2 < quads1d; ++k2)
+               {
+                  const double s = shape1d(j2, k2);
+                  for (int k1 = 0; k1 < quads1d; ++k1)
                   {
-                     const double s = shape1d(i2, k2);
-                     for (int i1 = 0; i1 < dofs1d; ++i1)
-                     {
-                        Umat(i1, i2) += Q(i1) * s;
-                     }
+                     QQ(k1, k2) += Q(k1) * s;
+                  }
+               }
+            }
+
+            // QQ_c_k1_k2 = Dmat_c_d_k1_k2 * QQ_d_k1_k2
+            // NOTE: (k1, k2) = k -- 1d index over tensor product of quad points
+            const int d_offset = e * quads;
+            const double *data_d = data_d0 + d_offset;
+            for (int k = 0; k < quads; ++k) { data_qq[k] *= data_d[k]; }
+
+            for (int k2 = 0; k2 < quads1d; ++k2)
+            {
+               Q = 0.;
+               for (int k1 = 0; k1 < quads1d; ++k1)
+               {
+                  const double q = QQ(k1, k2);
+                  for (int i1 = 0; i1 < dofs1d; ++i1)
+                  {
+                     Q(i1) += q * shape1d(i1, k1);
+                  }
+               }
+               for (int i2 = 0; i2 < dofs1d; ++i2)
+               {
+                  const double s = shape1d(i2, k2);
+                  for (int i1 = 0; i1 < dofs1d; ++i1)
+                  {
+                     Umat(i1, i2) += Q(i1) * s;
                   }
                }
             }
@@ -624,90 +618,88 @@ void PAMassIntegrator::MultHex_Device(const Vector &V, Vector &U)
       TensorArray<2> QQ(data_qq, msize, msize);
       TensorArray<3> QQQ(data_qqq, quads1d, quads1d, quads1d);
 #pragma omp for
+      for (int e = 0; e < fes->GetNE(); ++e)
       {
-         for (int e = 0; e < fes->GetNE(); ++e)
+         for (int vd = 0; vd < vdim; ++vd)
          {
-            for (int vd = 0; vd < vdim; ++vd)
+            const int e_offset = dofs * (vdim * e + vd);
+            const TensorArray<3> Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+            TensorArray<3> Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+
+            // QQQ_k1_k2_k3 = shape_j1_k1 * shape_j2_k2  * shape_j3_k3  * Vmat_j1_j2_j3
+            QQQ = 0.;
+            for (int j3 = 0; j3 < dofs1d; ++j3)
             {
-               const int e_offset = dofs * (vdim * e + vd);
-               const TensorArray<3> Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
-               TensorArray<3> Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
-
-               // QQQ_k1_k2_k3 = shape_j1_k1 * shape_j2_k2  * shape_j3_k3  * Vmat_j1_j2_j3
-               QQQ = 0.;
-               for (int j3 = 0; j3 < dofs1d; ++j3)
+               QQ = 0.;
+               for (int j2 = 0; j2 < dofs1d; ++j2)
                {
-                  QQ = 0.;
-                  for (int j2 = 0; j2 < dofs1d; ++j2)
+                  Q = 0.;
+                  for (int j1 = 0; j1 < dofs1d; ++j1)
                   {
-                     Q = 0.;
-                     for (int j1 = 0; j1 < dofs1d; ++j1)
-                     {
-                        const double v = Vmat(j1, j2, j3);
-                        for (int k1 = 0; k1 < quads1d; ++k1)
-                        {
-                           Q(k1) += v * shape1d(j1, k1);
-                        }
-                     }
-                     for (int k2 = 0; k2 < quads1d; ++k2)
-                     {
-                        const double s = shape1d(j2, k2);
-                        for (int k1 = 0; k1 < quads1d; ++k1)
-                        {
-                           QQ(k1, k2) += Q(k1) * s;
-                        }
-                     }
-                  }
-                  for (int k3 = 0; k3 < quads1d; ++k3)
-                  {
-                     const double s = shape1d(j3, k3);
-                     for (int k2 = 0; k2 < quads1d; ++k2)
-                        for (int k1 = 0; k1 < quads1d; ++k1)
-                        {
-                           QQQ(k1, k2, k3) += QQ(k1, k2) * s;
-                        }
-                  }
-               }
-
-               // QQQ_k1_k2_k3 = Dmat_k1_k2_k3 * QQQ_k1_k2_k3
-               // NOTE: (k1, k2, k3) = q -- 1d quad point index
-               const int d_offset = e * quads;
-               const double *data_d = data_d0 + d_offset;
-               for (int k = 0; k < quads; ++k) { data_qqq[k] *= data_d[k]; }
-
-               // Apply transpose of the first operator that takes V -> QQQ -- QQQ -> U
-               for (int k3 = 0; k3 < quads1d; ++k3)
-               {
-                  QQ = 0.;
-                  for (int k2 = 0; k2 < quads1d; ++k2)
-                  {
-                     Q = 0.;
+                     const double v = Vmat(j1, j2, j3);
                      for (int k1 = 0; k1 < quads1d; ++k1)
                      {
-                        const double q = QQQ(k1, k2, k3);
-                        for (int i1 = 0; i1 < dofs1d; ++i1)
-                        {
-                           Q(i1) += q * shape1d(i1, k1);
-                        }
-                     }
-                     for (int i2 = 0; i2 < dofs1d; ++i2)
-                     {
-                        const double s = shape1d(i2, k2);
-                        for (int i1 = 0; i1 < dofs1d; ++i1)
-                        {
-                           QQ(i1, i2) += Q(i1) * s;
-                        }
+                        Q(k1) += v * shape1d(j1, k1);
                      }
                   }
-                  for (int i3 = 0; i3 < dofs1d; ++i3)
+                  for (int k2 = 0; k2 < quads1d; ++k2)
                   {
-                     const double s = shape1d(i3, k3);
-                     for (int i2 = 0; i2 < dofs1d; ++i2)
-                        for (int i1 = 0; i1 < dofs1d; ++i1)
-                        {
-                           Umat(i1, i2, i3) += s * QQ(i1, i2);
-                        }
+                     const double s = shape1d(j2, k2);
+                     for (int k1 = 0; k1 < quads1d; ++k1)
+                     {
+                        QQ(k1, k2) += Q(k1) * s;
+                     }
                   }
+               }
+               for (int k3 = 0; k3 < quads1d; ++k3)
+               {
+                  const double s = shape1d(j3, k3);
+                  for (int k2 = 0; k2 < quads1d; ++k2)
+                     for (int k1 = 0; k1 < quads1d; ++k1)
+                     {
+                        QQQ(k1, k2, k3) += QQ(k1, k2) * s;
+                     }
+               }
+            }
+
+            // QQQ_k1_k2_k3 = Dmat_k1_k2_k3 * QQQ_k1_k2_k3
+            // NOTE: (k1, k2, k3) = q -- 1d quad point index
+            const int d_offset = e * quads;
+            const double *data_d = data_d0 + d_offset;
+            for (int k = 0; k < quads; ++k) { data_qqq[k] *= data_d[k]; }
+
+            // Apply transpose of the first operator that takes V -> QQQ -- QQQ -> U
+            for (int k3 = 0; k3 < quads1d; ++k3)
+            {
+               QQ = 0.;
+               for (int k2 = 0; k2 < quads1d; ++k2)
+               {
+                  Q = 0.;
+                  for (int k1 = 0; k1 < quads1d; ++k1)
+                  {
+                     const double q = QQQ(k1, k2, k3);
+                     for (int i1 = 0; i1 < dofs1d; ++i1)
+                     {
+                        Q(i1) += q * shape1d(i1, k1);
+                     }
+                  }
+                  for (int i2 = 0; i2 < dofs1d; ++i2)
+                  {
+                     const double s = shape1d(i2, k2);
+                     for (int i1 = 0; i1 < dofs1d; ++i1)
+                     {
+                        QQ(i1, i2) += Q(i1) * s;
+                     }
+                  }
+               }
+               for (int i3 = 0; i3 < dofs1d; ++i3)
+               {
+                  const double s = shape1d(i3, k3);
+                  for (int i2 = 0; i2 < dofs1d; ++i2)
+                     for (int i1 = 0; i1 < dofs1d; ++i1)
+                     {
+                        Umat(i1, i2, i3) += s * QQ(i1, i2);
+                     }
                }
             }
          }
