@@ -213,7 +213,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
       double s_dshape1d[50];
       double s_xy[50];
       double s_xDy[50];
-      double s_grad[50];
+      double s_grad[100];
 
 #pragma omp distribute
       for (int e = 0; e < NE; ++e)
@@ -226,17 +226,18 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
                s_dshape1d[id] = ds1d[id];
             }
 
-         const int e_offset = dofs * e;
-         const TensorArray<2> Vmat(data_V + e_offset, dofs1d, dofs1d);
-         TensorArray<2> Umat(data_U + e_offset, dofs1d, dofs1d);
          const int d_offset = e * quads * terms;
          const double *data_d = data_d0 + d_offset;
+
+         const int e_offset = dofs * e;
+         const double *Ve = data_V + e_offset;
+         double *Ue = data_U + e_offset;
 
 #pragma omp parallel for
          for (int dx = 0; dx < dofs1d; ++dx)
          {
             double r_x[11];
-            for (int dy = 0; dy < dofs1d; ++dy) r_x[dy] = Vmat(dx, dy);
+            for (int dy = 0; dy < dofs1d; ++dy) r_x[dy] = Ve[dx + dy * dofs1d];
             for (int qy = 0; qy < quads1d; ++qy)
             {
                double xy = 0;
@@ -303,7 +304,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
                for (int qx = 0; qx < quads1d; ++qx)
                   s += ((s_xy[dy + qx * dofs1d] * s_dshape1d[dx + qx * dofs1d]) +
                         (s_xDy[dy + qx * dofs1d] * s_shape1d[dx + qx * dofs1d]));
-               Umat[dx + dy * dofs1d] += s;
+               Ue[dx + dy * dofs1d] += s;
             }
       }
    }
