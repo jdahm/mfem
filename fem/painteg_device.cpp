@@ -128,56 +128,77 @@ void PADiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
    const int terms = dim*(dim+1)/2;
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
+   const int msize = std::max(dofs1d, quads1d);
 
    const int dofs = dofs1d;
    const int quads = quads1d;
-   const int vdim = fes->GetVDim();
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#pragma omp parallel
+   const double *data_V = V.GetData();
+   double *data_U = U.GetData();
+   const double *ds1d = dshape1d.GetData();
+
+   const int NE = fes->GetNE();
+   const int batchsize = 128;
+
+   const int vdim = fes->GetVDim();
+   MFEM_ASSERT(vdim == 1, "");
+
+#pragma omp target teams                                \
+   thread_limit(msize)                                  \
+   is_device_ptr(data_d0, data_V, data_U, ds1d)
    {
-      double *data_q = new double[quads1d * dim];
-      TensorArray<2> Q(data_q, quads1d, dim);
-#pragma omp for
-      for (int e = 0; e < fes->GetNE(); ++e)
+      double s_dshape1d[50];
+      double s_grad[50];
+
+#pragma omp distribute
+      for (int ebatch = 0; ebatch < NE/batchsize; ++ebatch)
       {
-         for (int vd = 0; vd < vdim; ++vd)
+
+#pragma omp parallel num_threads(batchsize)
          {
-            const int e_offset = dofs * (vdim * e + vd);
-            const TensorArray<1> Vmat(V.GetData() + e_offset, dofs1d);
-            TensorArray<1> Umat(U.GetData() + e_offset, dofs1d);
-
-            // Q_k1 = dshape_j1_k1 * Vmat_j1
-            Q = 0.;
-            for (int j1 = 0; j1 < dofs1d; ++j1)
-            {
-               const double v = Vmat(j1);
-               for (int k1 = 0; k1 < quads1d; ++k1)
+#pragma omp for
+            for (int x = 0; x < msize; ++x)
+               for (int id = x; id < dofs1d * quads1d; id += msize)
                {
-                  Q(k1, 0) += v * dshape1d(j1, k1);
+                  s_dshape1d[id] = ds1d[id];
                }
-            }
+#pragma omp barrier
 
-            const int d_offset = e * quads * terms;
-            const double *data_d = data_d0 + d_offset;
-            for (int k = 0; k < quads; ++k)
+#pragma omp for
+            for (int el = 0; el < batchsize; ++el)
             {
-               data_q[k] *= data_d[k];
-            }
-
-            // Umat_k1 = dshape_j1_k1 * Q_k1
-            for (int k1 = 0; k1 < quads1d; ++k1)
-            {
-               const double q = Q(k1, 0);
-               for (int i1 = 0; i1 < dofs1d; ++i1)
+               const int e = ebatch * batchsize + el;
+               if (e < NE)
                {
-                  Umat(i1) += q * dshape1d(i1, k1);
+                  const double *Ve = data_V + e * dofs;
+                  double *Ue = data_U + e * dofs;
+
+                  for (int qx = 0; qx < quads1d; ++qx) s_grad[qx] = 0;
+                  for (int dx = 0; dx < dofs1d; ++dx)
+                  {
+                     const double s = Ve[dx];
+                     for (int qx = 0; qx < quads1d; ++qx)
+                        s_grad[qx] += s * s_dshape1d[dx + qx * dofs1d];
+                  }
+
+                  const int d_offset = e * quads * terms;
+                  const double *data_d = data_d0 + d_offset;
+                  for (int qx = 0; qx < quads1d; ++qx)
+                     s_grad[qx] *= data_d[terms * qx + 0];
+
+                  for (int dx = 0; dx < dofs1d; ++dx)
+                  {
+                     double s = 0;
+                     for (int qx = 0; qx < quads1d; ++qx)
+                        s += s_grad[qx] * s_dshape1d[dx + qx * dofs1d];
+                     Ue[dx] += s;
+                  }
                }
             }
          }
       }
-      delete [] data_q;
    }
 }
 
@@ -218,94 +239,100 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
 #pragma omp distribute
       for (int e = 0; e < NE; ++e)
       {
-#pragma omp parallel for
-         for (int x = 0; x < msize; ++x)
-            for (int id = x; id < dofs1d * quads1d; id += msize)
-            {
-               s_shape1d[id]  = s1d[id];
-               s_dshape1d[id] = ds1d[id];
-            }
-
-         const int d_offset = e * quads * terms;
-         const double *data_d = data_d0 + d_offset;
-
-         const int e_offset = dofs * e;
-         const double *Ve = data_V + e_offset;
-         double *Ue = data_U + e_offset;
-
-#pragma omp parallel for
-         for (int dx = 0; dx < dofs1d; ++dx)
+#pragma omp parallel num_threads(msize)
          {
-            double r_x[11];
-            for (int dy = 0; dy < dofs1d; ++dy) r_x[dy] = Ve[dx + dy * dofs1d];
-            for (int qy = 0; qy < quads1d; ++qy)
-            {
-               double xy = 0;
-               double xDy = 0;
-               for (int dy = 0; dy < dofs1d; ++dy)
-               {
-                  xy  += r_x[dy] * s_shape1d[dy + qy * dofs1d];
-                  xDy += r_x[dy] * s_dshape1d[dy + qy * dofs1d];
-               }
-               s_xy[dx + qy * dofs1d]  = xy;
-               s_xDy[dx + qy * dofs1d] = xDy;
-            }
-         }
+            const int d_offset = e * quads * terms;
+            const double *data_d = data_d0 + d_offset;
 
-#pragma omp parallel for
-         for (int qy = 0; qy < quads1d; ++qy)
-            for (int qx = 0; qx < quads1d; ++qx)
-            {
-               double gradX = 0, gradY = 0;
-               for (int dx = 0; dx < dofs1d; ++dx)
-               {
-                  gradX += s_xy[dx + qy * dofs1d]  * s_dshape1d[dx + qx * dofs1d];
-                  gradY += s_xDy[dx + qy * dofs1d] * s_shape1d[dx + qx * dofs1d];
-               }
+            const int e_offset = dofs * e;
+            const double *Ve = data_V + e_offset;
+            double *Ue = data_U + e_offset;
 
-               const int q = qy * quads1d + qx;
-               const double O11 = data_d[terms*q + 0];
-               const double O12 = data_d[terms*q + 1];
-               const double O22 = data_d[terms*q + 2];
-
-               s_grad[0 * quads + qx + qy * quads1d] = (O11 * gradX) + (O12 * gradY);
-               s_grad[1 * quads + qx + qy * quads1d] = (O12 * gradX) + (O22 * gradY);
-            }
-
-#pragma omp parallel for
-         for (int qx = 0; qx < quads1d; ++qx)
-         {
             double r_x[11];
             double r_y[11];
-            for (int qy = 0; qy < quads1d; ++qy)
+#pragma omp for
+            for (int x = 0; x < msize; ++x)
+               for (int id = x; id < dofs1d * quads1d; id += msize)
+               {
+                  s_shape1d[id]  = s1d[id];
+                  s_dshape1d[id] = ds1d[id];
+               }
+#pragma omp barrier
+
+#pragma omp for
+            for (int dx = 0; dx < dofs1d; ++dx)
             {
-               r_x[qy] = s_grad[0 * quads + qx + qy * quads1d];
-               r_y[qy] = s_grad[1 * quads + qx + qy * quads1d];
-            }
-            for (int dy = 0; dy < dofs1d; ++dy)
-            {
-               double xy  = 0;
-               double xDy = 0;
+               for (int dy = 0; dy < dofs1d; ++dy) r_x[dy] = Ve[dx + dy * dofs1d];
                for (int qy = 0; qy < quads1d; ++qy)
                {
-                  xy  += r_x[qy] * s_shape1d[dy + qy * dofs1d];
-                  xDy += r_y[qy] * s_dshape1d[dy + qy * dofs1d];
+                  double xy = 0;
+                  double xDy = 0;
+                  for (int dy = 0; dy < dofs1d; ++dy)
+                  {
+                     xy  += r_x[dy] * s_shape1d[dy + qy * dofs1d];
+                     xDy += r_x[dy] * s_dshape1d[dy + qy * dofs1d];
+                  }
+                  s_xy[dx + qy * dofs1d]  = xy;
+                  s_xDy[dx + qy * dofs1d] = xDy;
                }
-               s_xy[dy + qx * dofs1d] = xy;
-               s_xDy[dy + qx * dofs1d] = xDy;
             }
-         }
+#pragma omp barrier
 
-#pragma omp parallel for
-         for (int dx = 0; dx < dofs1d; ++dx)
-            for (int dy = 0; dy < dofs1d; ++dy)
-            {
-               double s = 0;
+#pragma omp for collapse(2)
+            for (int qy = 0; qy < quads1d; ++qy)
                for (int qx = 0; qx < quads1d; ++qx)
-                  s += ((s_xy[dy + qx * dofs1d] * s_dshape1d[dx + qx * dofs1d]) +
-                        (s_xDy[dy + qx * dofs1d] * s_shape1d[dx + qx * dofs1d]));
-               Ue[dx + dy * dofs1d] += s;
+               {
+                  double gradX = 0, gradY = 0;
+                  for (int dx = 0; dx < dofs1d; ++dx)
+                  {
+                     gradX += s_xy[dx + qy * dofs1d]  * s_dshape1d[dx + qx * dofs1d];
+                     gradY += s_xDy[dx + qy * dofs1d] * s_shape1d[dx + qx * dofs1d];
+                  }
+
+                  const int q = qy * quads1d + qx;
+                  const double O11 = data_d[terms*q + 0];
+                  const double O12 = data_d[terms*q + 1];
+                  const double O22 = data_d[terms*q + 2];
+
+                  s_grad[0 * quads + qx + qy * quads1d] = (O11 * gradX) + (O12 * gradY);
+                  s_grad[1 * quads + qx + qy * quads1d] = (O12 * gradX) + (O22 * gradY);
+               }
+#pragma omp barrier
+
+#pragma omp for
+            for (int qx = 0; qx < quads1d; ++qx)
+            {
+               for (int qy = 0; qy < quads1d; ++qy)
+               {
+                  r_x[qy] = s_grad[0 * quads + qx + qy * quads1d];
+                  r_y[qy] = s_grad[1 * quads + qx + qy * quads1d];
+               }
+               for (int dy = 0; dy < dofs1d; ++dy)
+               {
+                  double xy  = 0;
+                  double xDy = 0;
+                  for (int qy = 0; qy < quads1d; ++qy)
+                  {
+                     xy  += r_x[qy] * s_shape1d[dy + qy * dofs1d];
+                     xDy += r_y[qy] * s_dshape1d[dy + qy * dofs1d];
+                  }
+                  s_xy[dy + qx * dofs1d] = xy;
+                  s_xDy[dy + qx * dofs1d] = xDy;
+               }
             }
+#pragma omp barrier
+
+#pragma omp for collapse(2)
+            for (int dx = 0; dx < dofs1d; ++dx)
+               for (int dy = 0; dy < dofs1d; ++dy)
+               {
+                  double s = 0;
+                  for (int qx = 0; qx < quads1d; ++qx)
+                     s += ((s_xy[dy + qx * dofs1d] * s_dshape1d[dx + qx * dofs1d]) +
+                           (s_xDy[dy + qx * dofs1d] * s_shape1d[dx + qx * dofs1d]));
+                  Ue[dx + dy * dofs1d] += s;
+               }
+         }
       }
    }
 }
@@ -325,142 +352,156 @@ void PADiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
 
    const double *data_d0 = Dtensor.GetData(0);
 
-#pragma omp parallel
+   const double *data_V = V.GetData();
+   double *data_U = U.GetData();
+   const double *s1d = shape1d.GetData();
+   const double *ds1d = dshape1d.GetData();
+
+   const int NE = fes->GetNE();
+
+   MFEM_ASSERT(vdim == 1, "");
+
+#pragma omp target teams                        \
+   thread_limit(msize*msize)                    \
+   is_device_ptr(data_d0, data_V, data_U, s1d, ds1d)
    {
-      double *data_q = new double[msize * dim];
-      double *data_qq = new double[msize * msize * dim];
-      double *data_qqq = new double[quads1d * quads1d * quads1d * dim];
-      TensorArray<2> Q(data_q, msize, dim);
-      TensorArray<3> QQ(data_qq, msize, msize, dim);
-      TensorArray<3> QQQ0(data_qqq + 0*quads, quads1d, quads1d, quads1d);
-      TensorArray<3> QQQ1(data_qqq + 1*quads, quads1d, quads1d, quads1d);
-      TensorArray<3> QQQ2(data_qqq + 2*quads, quads1d, quads1d, quads1d);
-#pragma omp for
-      for (int e = 0; e < fes->GetNE(); ++e)
+      double s_shape1d[50];
+      double s_dshape1d[50];
+      double s_z[50];
+      double s_Dz[50];
+      double s_xyDz[50];
+
+#pragma omp distribute
+      for (int e = 0; e < NE; ++e)
       {
-         for (int vd = 0; vd < vdim; ++vd)
+         const int d_offset = e * quads * terms;
+         const double *data_d = data_d0 + d_offset;
+
+         const int e_offset = dofs * e;
+         const double *Ve = data_V + e_offset;
+         double *Ue = data_U + e_offset;
+
+#pragma omp parallel num_threads(msize*msize)
          {
-            const int e_offset = dofs * (vdim * e + vd);
-            const TensorArray<3> Vmat(V.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
-            TensorArray<3> Umat(U.GetData() + e_offset, dofs1d, dofs1d, dofs1d);
+            // Thread-private storage
+            double r_qz[11];
+            double r_qDz[11];
+            double r_dDxyz[11];
+            double r_dxDyz[11];
+            double r_dxyDz[11];
 
-            // QQQ_0_k1_k2_k3 = dshape_j1_k1 * shape_j2_k2  * shape_j3_k3  * Vmat_j1_j2_j3
-            // QQQ_1_k1_k2_k3 = shape_j1_k1  * dshape_j2_k2 * shape_j3_k3  * Vmat_j1_j2_j3
-            // QQQ_2_k1_k2_k3 = shape_j1_k1  * shape_j2_k2  * dshape_j3_k3 * Vmat_j1_j2_j3
-            QQQ0 = 0.; QQQ1 = 0.; QQQ2 = 0.;
-            for (int j3 = 0; j3 < dofs1d; ++j3)
-            {
-               QQ = 0.;
-               for (int j2 = 0; j2 < dofs1d; ++j2)
+            const int tid = omp_get_thread_num();
+            const int tid_dx = (tid % dofs1d);
+            const int tid_dy = (tid / dofs1d);
+
+            const int tid_qx = (tid % quads1d);
+            const int tid_qy = (tid / quads1d);
+
+#pragma omp for collapse(2)
+            for (int x = 0; x < msize; ++x)
+               for (int id = x; id < dofs1d * quads1d; id += msize)
                {
-                  Q = 0.;
-                  for (int j1 = 0; j1 < dofs1d; ++j1)
-                  {
-                     const double v = Vmat(j1, j2, j3);
-                     for (int k1 = 0; k1 < quads1d; ++k1)
-                     {
-                        Q(k1, 0) += v * dshape1d(j1, k1);
-                        Q(k1, 1) += v * shape1d(j1, k1);
-                     }
-                  }
-                  for (int k2 = 0; k2 < quads1d; ++k2)
-                  {
-                     const double s = shape1d(j2, k2);
-                     const double d = dshape1d(j2, k2);
-                     for (int k1 = 0; k1 < quads1d; ++k1)
-                     {
-                        QQ(k1, k2, 0) += Q(k1, 0) * s;
-                        QQ(k1, k2, 1) += Q(k1, 1) * d;
-                        QQ(k1, k2, 2) += Q(k1, 1) * s;
-                     }
-                  }
+                  s_shape1d[id]  = s1d[id];
+                  s_dshape1d[id] = ds1d[id];
                }
-               for (int k3 = 0; k3 < quads1d; ++k3)
+#pragma omp barrier
+
+            for (int qz = 0; qz < quads1d; ++qz)
+            {
+               r_qz[qz] = 0;
+               r_qDz[qz] = 0;
+            }
+            for (int dz = 0; dz < dofs1d; ++dz) {
+               r_dDxyz[dz] = 0;
+               r_dxDyz[dz] = 0;
+               r_dxyDz[dz] = 0;
+            }
+
+            for (int dz = 0; dz < dofs1d; ++dz)
+            {
+               const double s = Ve[tid_dx + (tid_dy + dz * dofs1d) * dofs1d];
+               for (int qz = 0; qz < quads1d; ++qz)
                {
-                  const double s = shape1d(j3, k3);
-                  const double d = dshape1d(j3, k3);
-                  for (int k2 = 0; k2 < quads1d; ++k2)
-                     for (int k1 = 0; k1 < quads1d; ++k1)
-                     {
-                        QQQ0(k1, k2, k3) += QQ(k1, k2, 0) * s;
-                        QQQ1(k1, k2, k3) += QQ(k1, k2, 1) * s;
-                        QQQ2(k1, k2, k3) += QQ(k1, k2, 2) * d;
-                     }
+                  r_qz[qz]  += s * s_shape1d[dz + qz * dofs1d];
+                  r_qDz[qz] += s * s_dshape1d[dz + qz * dofs1d];
                }
             }
 
-            // QQQ_c_k1_k2_k3 = Dmat_c_d_k1_k2_k3 * QQQ_d_k1_k2_k3
-            // NOTE: (k1, k2, k3) = q -- 1d quad point index
-            const int d_offset = e * quads * terms;
-            const double *data_d = data_d0 + d_offset;
-            for (int k = 0; k < quads; ++k)
+            // For each xy plane
+            for (int qz = 0; qz < quads1d; ++qz)
             {
-               const double D00 = data_d[terms*k + 0];
-               const double D01 = data_d[terms*k + 1];
-               const double D02 = data_d[terms*k + 2];
-               const double D11 = data_d[terms*k + 3];
-               const double D12 = data_d[terms*k + 4];
-               const double D22 = data_d[terms*k + 5];
+               s_z[tid_dx + tid_dy * dofs1d] = r_qz[qz];
+               s_Dz[tid_dx + tid_dy * dofs1d] = r_qDz[qz];
+#pragma omp barrier
 
-               const double q0 = data_qqq[0*quads + k];
-               const double q1 = data_qqq[1*quads + k];
-               const double q2 = data_qqq[2*quads + k];
+               double Dxyz = 0;
+               double xDyz = 0;
+               double xyDz = 0;
+               for (int dy = 0; dy < dofs1d; ++dy)
+               {
+                  const double wy  = s_shape1d[dy + tid_qy * dofs1d];
+                  const double wDy = s_dshape1d[dy + tid_qy * dofs1d];
+                  for (int dx = 0; dx < dofs1d; ++dx)
+                  {
+                     const double wx  = s_shape1d[dx + tid_qx * dofs1d];
+                     const double wDx = s_dshape1d[dx + tid_qx * dofs1d];
+                     const double z  = s_z[dx + dy * dofs1d];
+                     const double Dz = s_Dz[dx + dy * dofs1d];
+                     Dxyz += wDx * wy  * z;
+                     xDyz += wx  * wDy * z;
+                     xyDz += wx  * wy  * Dz;
+                  }
+               }
 
-               data_qqq[0*quads + k] = D00 * q0 + D01 * q1 + D02 * q2;
-               data_qqq[1*quads + k] = D01 * q0 + D11 * q1 + D12 * q2;
-               data_qqq[2*quads + k] = D02 * q0 + D12 * q1 + D22 * q2;
+               const int q = tid_qx + (tid_qy + qz * quads1d) * quads1d;
+               const double O11 = data_d[terms*q + 0];
+               const double O12 = data_d[terms*q + 1];
+               const double O13 = data_d[terms*q + 2];
+               const double O22 = data_d[terms*q + 3];
+               const double O23 = data_d[terms*q + 4];
+               const double O33 = data_d[terms*q + 5];
+
+               const double qDxyz = (O11 * Dxyz) + (O12 * xDyz) + (O13 * xyDz);
+               const double qxDyz = (O12 * Dxyz) + (O22 * xDyz) + (O23 * xyDz);
+               const double qxyDz = (O13 * Dxyz) + (O23 * xDyz) + (O33 * xyDz);
+
+               for (int dz = 0; dz < dofs1d; ++dz) {
+                  const double wz  = s_shape1d[dz + qz * dofs1d];
+                  const double wDz = s_dshape1d[dz + qz * dofs1d];
+                  r_dDxyz[dz] += wz  * qDxyz;
+                  r_dxDyz[dz] += wz  * qxDyz;
+                  r_dxyDz[dz] += wDz * qxyDz;
+               }
             }
 
-            // Apply transpose of the first operator that takes V -> QQQd -- QQQd -> U
-            for (int k3 = 0; k3 < quads1d; ++k3)
+            // Iterate over xy planes to compute solution
+            for (int dz = 0; dz < dofs1d; ++dz)
             {
-               QQ = 0.;
-               for (int k2 = 0; k2 < quads1d; ++k2)
-               {
-                  Q = 0.;
-                  for (int k1 = 0; k1 < quads1d; ++k1)
-                  {
-                     const double q0 = QQQ0(k1, k2, k3);
-                     const double q1 = QQQ1(k1, k2, k3);
-                     const double q2 = QQQ2(k1, k2, k3);
-                     for (int i1 = 0; i1 < dofs1d; ++i1)
-                     {
-                        Q(i1, 0) += q0 * dshape1d(i1, k1);
-                        Q(i1, 1) += q1 * shape1d(i1, k1);
-                        Q(i1, 2) += q2 * shape1d(i1, k1);
-                     }
-                  }
-                  for (int i2 = 0; i2 < dofs1d; ++i2)
-                  {
-                     const double s = shape1d(i2, k2);
-                     const double d = dshape1d(i2, k2);
-                     for (int i1 = 0; i1 < dofs1d; ++i1)
-                     {
-                        QQ(i1, i2, 0) += Q(i1, 0) * s;
-                        QQ(i1, i2, 1) += Q(i1, 1) * d;
-                        QQ(i1, i2, 2) += Q(i1, 2) * s;
-                     }
+               s_z[tid_qx + tid_qy * quads1d] = r_dDxyz[dz];
+               s_Dz[tid_qx + tid_qy * quads1d] = r_dxDyz[dz];
+               s_xyDz[tid_qx + tid_qy * quads1d] = r_dxyDz[dz];
+#pragma omp barrier
+
+               // Finalize solution in xy plane
+               double solZ = 0;
+               for (int qy = 0; qy < quads1d; ++qy) {
+                  const double wy  = s_shape1d[tid_dy + qy * dofs1d];
+                  const double wDy = s_dshape1d[tid_dy + qy * dofs1d];
+                  for (int qx = 0; qx < quads1d; ++qx) {
+                     const double wx  = s_shape1d[tid_dx + qx * dofs1d];
+                     const double wDx = s_dshape1d[tid_dx + qx * dofs1d];
+                     const double Dxyz = s_z[qx + qy * quads1d];
+                     const double xDyz = s_Dz[qx + qy * quads1d];
+                     const double xyDz = s_xyDz[qx + qy * quads1d];
+                     solZ += ((wDx * wy  * Dxyz) +
+                              (wx  * wDy * xDyz) +
+                              (wx  * wy  * xyDz));
                   }
                }
-               for (int i3 = 0; i3 < dofs1d; ++i3)
-               {
-                  const double s = shape1d(i3, k3);
-                  const double d = dshape1d(i3, k3);
-                  for (int i2 = 0; i2 < dofs1d; ++i2)
-                     for (int i1 = 0; i1 < dofs1d; ++i1)
-                     {
-                        Umat(i1, i2, i3) +=
-                           QQ(i1, i2, 0) * s + 
-                           QQ(i1, i2, 1) * s +
-                           QQ(i1, i2, 2) * d;
-                     }
-               }
+               Ue[tid_dx + (tid_dy + dz * dofs1d) * dofs1d] += solZ;
             }
          }
       }
-      delete [] data_q;
-      delete [] data_qq;
-      delete [] data_qqq;
    }
 }
 
