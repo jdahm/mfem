@@ -18,6 +18,7 @@ namespace mfem
 {
 
 extern bool skip_target;
+extern bool use_parallel;
 
 struct DeviceSpec
 {
@@ -38,6 +39,9 @@ struct DeviceSpec
 
 void SetDefaultAccelerator(int id);
 void UseHost();
+
+void StartParallel();
+void StopParallel();
 
 } // namespace mfem
 

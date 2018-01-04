@@ -32,6 +32,9 @@ void SetDefaultAccelerator(int id)
 
 void UseHost() { skip_target = true; }
 
+bool use_parallel = false;
+void StartParallel() { use_parallel = true; }
+void StopParallel() { use_parallel = false; }
 
 } // namespace mfem
 

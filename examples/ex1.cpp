@@ -143,6 +143,7 @@ int main(int argc, char *argv[])
    b->AddDomainIntegrator(new DomainLFIntegrator(one));
    b->Assemble();
 
+   StartParallel();
    // 7. Define the solution vector x as a finite element grid function
    //    corresponding to fespace. Initialize x with initial guess of zero,
    //    which satisfies the boundary conditions.
@@ -222,7 +223,7 @@ int main(int argc, char *argv[])
       umf_solver.Mult(B, X);
    }
 #endif
-
+   StopParallel();
    // 11. Recover the solution as a finite element grid function.
    a->RecoverFEMSolution(X, *b, x);
 
