@@ -397,9 +397,9 @@ void PADiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
             const int tid_qx = (tid % quads1d);
             const int tid_qy = (tid / quads1d);
 
-#pragma omp for collapse(2)
-            for (int x = 0; x < msize; ++x)
-               for (int id = x; id < dofs1d * quads1d; id += msize)
+#pragma omp for
+            for (int id = 0; id < quads1d * dofs1d; ++id)
+               if (id < quads1d * dofs1d)
                {
                   s_shape1d[id]  = s1d[id];
                   s_dshape1d[id] = ds1d[id];
