@@ -202,6 +202,7 @@ int main(int argc, char *argv[])
       case 24: ode_solver = new SDIRK34Solver; break;
       default:
          cout << "Unknown ODE solver type: " << ode_solver_type << '\n';
+         delete mesh;
          return 3;
    }
 
@@ -343,8 +344,7 @@ ConductionOperator::ConductionOperator(FiniteElementSpace &f, double al,
       M->AddIntegrator(new PAMassIntegrator(new MassIntegrator));
    }
 
-   M->AssembleForm(p_assembly_mass ?
-                   BilinearForm::PARTIAL : BilinearForm::FULL);
+   M->AssembleForm(p_assembly_mass ? PartialAssembly : FullAssembly);
 
    M->FormSystemOperator(ess_tdof_list, Moper);
    if (!p_assembly_mass)
@@ -443,8 +443,7 @@ void ConductionOperator::SetParameters(const Vector &u)
    {
       K->AddIntegrator(new PADiffusionIntegrator(new DiffusionIntegrator(u_coeff)));
    }
-   K->AssembleForm(p_assembly_diff ?
-                   BilinearForm::PARTIAL : BilinearForm::FULL);
+   K->AssembleForm(p_assembly_diff ? PartialAssembly : FullAssembly);
 
    K->FormSystemOperator(ess_tdof_list, Koper);
 

@@ -462,11 +462,11 @@ void BilinearForm::Assemble (int skip_zeros)
    }
 }
 
-void BilinearForm::AssembleForm(enum Assembly type, int skip_zeros)
+void BilinearForm::AssembleForm(enum AssemblyType type, int skip_zeros)
 {
    if (!oper)
    {
-      if (type == FULL)
+      if (type == FullAssembly)
       {
          oper_type = MFEM_SPARSEMAT;
          oper = new SparseMatrix();
@@ -479,11 +479,11 @@ void BilinearForm::AssembleForm(enum Assembly type, int skip_zeros)
       }
    }
 
-   if (type == FULL)
+   if (type == FullAssembly)
    {
       Assemble(skip_zeros);
    }
-   else if (type != NONE)
+   else if (type != NoAssembly)
    {
       BilinearFormOperator *bfo = static_cast<BilinearFormOperator*>(oper);
       bfo->Assemble();
@@ -1129,11 +1129,11 @@ void MixedBilinearForm::Assemble (int skip_zeros)
 }
 
 
-void MixedBilinearForm::AssembleForm(enum Assembly type, int skip_zeros)
+void MixedBilinearForm::AssembleForm(enum AssemblyType type, int skip_zeros)
 {
    if (!oper)
    {
-      if (type == FULL)
+      if (type == FullAssembly)
       {
          oper_type = MFEM_SPARSEMAT;
          oper = new SparseMatrix();
@@ -1146,11 +1146,11 @@ void MixedBilinearForm::AssembleForm(enum Assembly type, int skip_zeros)
       }
    }
 
-   if (type == FULL)
+   if (type == FullAssembly)
    {
       Assemble(skip_zeros);
    }
-   else if (type != NONE)
+   else if (type != NoAssembly)
    {
       BilinearFormOperator *bfo = static_cast<BilinearFormOperator*>(oper);
       bfo->Assemble();

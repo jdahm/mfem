@@ -10,6 +10,7 @@
 // Software Foundation) version 2.1 dated February 1999.
 
 #include "../config/config.hpp"
+#include "../general/error.hpp"
 
 #ifdef MFEM_USE_MPI
 
@@ -1222,12 +1223,15 @@ hypre_ParCSRMatrixAdd(hypre_ParCSRMatrix *A,
    {
       cmap_differ = 1; /* A and B have different cmap_size */
    }
-   for (im = 0; im < A_cmap_size; im++)
+   else
    {
-      if (A_cmap[im] != B_cmap[im])
+      for (im = 0; im < A_cmap_size; im++)
       {
-         cmap_differ = 1; /* A and B have different cmap arrays */
-         break;
+         if (A_cmap[im] != B_cmap[im])
+         {
+            cmap_differ = 1; /* A and B have different cmap arrays */
+            break;
+         }
       }
    }
 
@@ -1315,6 +1319,8 @@ hypre_ParCSRMatrixAdd(hypre_ParCSRMatrix *A,
 
       /* delete CSR version of C */
       ierr += hypre_CSRMatrixDestroy(csr_C_temp);
+
+      MFEM_VERIFY(ierr == 0, "");
    }
 
    /* hypre_ParCSRMatrixSetNumNonzeros(A); */
