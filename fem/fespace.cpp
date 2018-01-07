@@ -1722,15 +1722,22 @@ void FiniteElementSpace::ToLocalVector(const Vector &v, Vector &V)
    const int size = v.Size();
    const int *offsets = tensor_offsets->GetData();
    const int *indices = tensor_indices->GetData();
+   const double *vd = v.GetData();
+   double *Vd = V.GetData();
 
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for \
+   is_device_ptr(offsets, indices, Vd, vd)       \
+   if(parallel:use_parallel)
+#endif
    for (int i = 0; i < size; i++)
    {
       const int offset = offsets[i];
       const int next_offset = offsets[i + 1];
-      const double dof_value = v(i);
+      const double dof_value = vd[i];
       for (int j = offset; j < next_offset; j++)
       {
-         V(indices[j]) = dof_value;
+         Vd[indices[j]] = dof_value;
       }
    }
 }
@@ -1747,7 +1754,14 @@ void FiniteElementSpace::ToGlobalVector(const Vector &V, Vector &v)
    const int size = v.Size();
    const int *offsets = tensor_offsets->GetData();
    const int *indices = tensor_indices->GetData();
+   const double *Vd = V.GetData();
+   double *vd = v.GetData();
 
+#if defined(MFEM_USE_OPENMP)
+#pragma omp target teams distribute parallel for \
+   is_device_ptr(offsets, indices, Vd, vd)       \
+   if(parallel:use_parallel)
+#endif
    for (int i = 0; i < size; i++)
    {
       const int offset = offsets[i];
@@ -1755,9 +1769,9 @@ void FiniteElementSpace::ToGlobalVector(const Vector &V, Vector &v)
       double dof_value = 0;
       for (int j = offset; j < next_offset; j++)
       {
-         dof_value += V(indices[j]);
+         dof_value += Vd[indices[j]];
       }
-      v(i) = dof_value;
+      vd[i] = dof_value;
    }
 }
 
