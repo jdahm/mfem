@@ -122,7 +122,7 @@ public:
 };
 
 
-void PADiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
+void FESDiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
 {
    const int dim = 1;
    const int terms = dim*(dim+1)/2;
@@ -202,7 +202,7 @@ void PADiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
    }
 }
 
-void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
+void FESDiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
 {
    const int dim = 2;
    const int terms = dim*(dim+1)/2;
@@ -213,7 +213,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
    const int msize = std::max(dofs1d, quads1d);
 
    const int dofs   = dofs1d * dofs1d;
-   const int quads  = IntRule->GetNPoints();
+   const int quads  = quads1d * quads1d;
 
    const double *data_d0 = Dtensor.GetData(0);
 
@@ -337,7 +337,7 @@ void PADiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
    }
 }
 
-void PADiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
+void FESDiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
 {
    const int dim = 3;
    const int terms = dim*(dim+1)/2;
@@ -348,7 +348,7 @@ void PADiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
    const int msize = std::max(dofs1d, quads1d);
 
    const int dofs   = dofs1d * dofs1d * dofs1d;
-   const int quads  = IntRule->GetNPoints();
+   const int quads  = quads1d * quads1d * quads1d;
 
    const double *data_d0 = Dtensor.GetData(0);
 
@@ -505,7 +505,7 @@ void PADiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
    }
 }
 
-void PAMassIntegrator::MultSeg_Device(const Vector &V, Vector &U)
+void FESMassIntegrator::MultSeg_Device(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
@@ -557,14 +557,14 @@ void PAMassIntegrator::MultSeg_Device(const Vector &V, Vector &U)
    }
 }
 
-void PAMassIntegrator::MultQuad_Device(const Vector &V, Vector &U)
+void FESMassIntegrator::MultQuad_Device(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
    const int msize = std::max(dofs1d, quads1d);
 
    const int dofs   = dofs1d * dofs1d;
-   const int quads  = IntRule->GetNPoints();
+   const int quads  = quads1d * quads1d;
    const int vdim = fes->GetVDim();
 
    const double *data_d0 = Dtensor.GetData(0);
@@ -639,14 +639,14 @@ void PAMassIntegrator::MultQuad_Device(const Vector &V, Vector &U)
    }
 }
 
-void PAMassIntegrator::MultHex_Device(const Vector &V, Vector &U)
+void FESMassIntegrator::MultHex_Device(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
    const int msize = std::max(dofs1d, quads1d);
 
    const int dofs   = dofs1d * dofs1d * dofs1d;
-   const int quads  = IntRule->GetNPoints();
+   const int quads  = quads1d * quads1d * quads1d;
    const int vdim = fes->GetVDim();
 
    const double *data_d0 = Dtensor.GetData(0);

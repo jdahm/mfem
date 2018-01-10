@@ -83,6 +83,27 @@ public:
    virtual ~BilinearFormIntegrator() { }
 };
 
+class BilinearFESpaceIntegrator
+{
+public:
+   BilinearFESpaceIntegrator() { }
+
+   virtual ~BilinearFESpaceIntegrator() { }
+
+   /// Internally assemble the integrator for the specific trial and
+   /// test spaces
+   virtual void Assemble(FiniteElementSpace *trial_fes,
+                         FiniteElementSpace *test_fes) { }
+
+   /// Apply the action A * x = y.
+   virtual void AddMult(const Vector &x, Vector &y)
+   { mfem_error("Not supported"); }
+
+   /// Apply the transposed action A^T * x = y.
+   virtual void AddMultTranspose(const Vector &x, Vector &y)
+   { mfem_error("Not supported"); }
+};
+
 class TransposeIntegrator : public BilinearFormIntegrator
 {
 private:
@@ -1624,9 +1645,7 @@ public:
                                     Vector &flux, Vector *d_energy = NULL);
 
    // Friend partial assembly version so it has access to the coefficients.
-   friend class PADiffusionIntegrator;
-   // TODO: Add a GetPAIntegrator method here
-   // PAIntegrator* GetPAIntegrator(type);
+   friend class FESDiffusionIntegrator;
 };
 
 /** Class for local mass matrix assembling a(u,v) := (Q u, v) */
@@ -1656,7 +1675,7 @@ public:
                                        DenseMatrix &elmat);
 
    // Friend partial assembly version so it has access to the coefficients.
-   friend class PAMassIntegrator;
+   friend class FESMassIntegrator;
 };
 
 class BoundaryMassIntegrator : public MassIntegrator
@@ -1752,7 +1771,7 @@ public:
                                        DenseMatrix &elmat);
 
    // Friend partial assembly version so it has access to the coefficients.
-   friend class PAMassIntegrator;
+   friend class FESMassIntegrator;
 };
 
 
