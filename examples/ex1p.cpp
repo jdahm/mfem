@@ -253,7 +253,9 @@ int main(int argc, char *argv[])
       tic_toc.Clear();
       tic_toc.Start();
    }
+   StartParallel();
    pcg->Mult(B, X);
+   StopParallel();
    if (myid == 0)
    {
       tic_toc.Stop();
