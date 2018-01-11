@@ -1719,6 +1719,8 @@ void FiniteElementSpace::ToLocalVector(const Vector &v, Vector &V)
 
    V.SetSize(tensor_indices->Size());
 
+   const bool use_target = (v.device.UseTarget() && V.device.UseTarget());
+
    const int size = v.Size();
    const int *offsets = tensor_offsets->GetData();
    const int *indices = tensor_indices->GetData();
@@ -1728,7 +1730,7 @@ void FiniteElementSpace::ToLocalVector(const Vector &v, Vector &V)
 #if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for \
    is_device_ptr(offsets, indices, Vd, vd)       \
-   if(parallel:use_parallel)
+   if(target:use_target) if(parallel:use_parallel)
 #endif
    for (int i = 0; i < size; i++)
    {
@@ -1751,6 +1753,8 @@ void FiniteElementSpace::ToGlobalVector(const Vector &V, Vector &v)
 
    v.SetSize(GetVSize());
 
+   const bool use_target = (V.device.UseTarget() && v.device.UseTarget());
+
    const int size = v.Size();
    const int *offsets = tensor_offsets->GetData();
    const int *indices = tensor_indices->GetData();
@@ -1760,7 +1764,7 @@ void FiniteElementSpace::ToGlobalVector(const Vector &V, Vector &v)
 #if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for \
    is_device_ptr(offsets, indices, Vd, vd)       \
-   if(parallel:use_parallel)
+   if(target:use_target) if(parallel:use_parallel)
 #endif
    for (int i = 0; i < size; i++)
    {

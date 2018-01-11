@@ -152,7 +152,8 @@ void ConstrainedOperator::Mult(const Vector &x, Vector &y) const
    const int *cld = constraint_list.GetData();
    const int clsize = constraint_list.Size();
 
-   const bool use_target = x.device.UseTarget();
+   const bool use_target = (x.device.UseTarget() && y.device.UseTarget() && z.device.UseTarget());
+
 #if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:use_target) is_device_ptr(zd, cld)
 #endif

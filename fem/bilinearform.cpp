@@ -1433,10 +1433,12 @@ void BilinearFormOperator::DoMult(bool transpose, bool add,
 {
    if (!transpose && trial_gs)
    {
+      X->device = x.device;
       trial_fes->ToLocalVector(x, *X);
    }
    else if (transpose && test_gs)
    {
+      X->device = x.device;
       test_fes->ToLocalVector(x, *X);
    }
    else
@@ -1445,6 +1447,8 @@ void BilinearFormOperator::DoMult(bool transpose, bool add,
    }
 
    if ((!transpose && !test_gs) || (transpose && !trial_gs)) { Y = &y; }
+   Y->device = y.device;
+
    *Y = 0.0;
 
    for (int i = 0; i < fesi.Size(); i++) fesi[i]->AddMult(*X, *Y);

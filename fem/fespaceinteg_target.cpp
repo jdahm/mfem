@@ -161,85 +161,89 @@ void FESDiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
                   s_dshape1d[id] = ds1d[id];
                }
 
-            for (int e = 0; e < batchsize; ++e)
+            for (int el = 0; el < batchsize; ++el)
             {
-               const int d_offset = e * quads * terms;
-               const double *data_d = data_d0 + d_offset;
+               const int e = ebatch * batchsize + el;
+               if (e < NE)
+               {
+                  const int d_offset = e * quads * terms;
+                  const double *data_d = data_d0 + d_offset;
 
-               const int e_offset = dofs * e;
-               const double *Ve = data_V + e_offset;
-               double *Ue = data_U + e_offset;
+                  const int e_offset = dofs * e;
+                  const double *Ve = data_V + e_offset;
+                  double *Ue = data_U + e_offset;
 
 #pragma omp for
-               for (int dx = 0; dx < dofs1d; ++dx)
-               {
-                  for (int dy = 0; dy < dofs1d; ++dy) r_x[dy] = Ve[dx + dy * dofs1d];
-                  for (int qy = 0; qy < quads1d; ++qy)
+                  for (int dx = 0; dx < dofs1d; ++dx)
                   {
-                     double xy = 0;
-                     double xDy = 0;
-                     for (int dy = 0; dy < dofs1d; ++dy)
-                     {
-                        xy  += r_x[dy] * s_shape1d[dy + qy * dofs1d];
-                        xDy += r_x[dy] * s_dshape1d[dy + qy * dofs1d];
-                     }
-                     s_xy[dx + qy * dofs1d]  = xy;
-                     s_xDy[dx + qy * dofs1d] = xDy;
-                  }
-               }
-
-#pragma omp for collapse(2)
-               for (int qy = 0; qy < quads1d; ++qy)
-                  for (int qx = 0; qx < quads1d; ++qx)
-                  {
-                     double gradX = 0, gradY = 0;
-                     for (int dx = 0; dx < dofs1d; ++dx)
-                     {
-                        gradX += s_xy[dx + qy * dofs1d]  * s_dshape1d[dx + qx * dofs1d];
-                        gradY += s_xDy[dx + qy * dofs1d] * s_shape1d[dx + qx * dofs1d];
-                     }
-
-                     const int q = qy * quads1d + qx;
-                     const double O11 = data_d[terms*q + 0];
-                     const double O12 = data_d[terms*q + 1];
-                     const double O22 = data_d[terms*q + 2];
-
-                     s_grad[0 * quads + qx + qy * quads1d] = (O11 * gradX) + (O12 * gradY);
-                     s_grad[1 * quads + qx + qy * quads1d] = (O12 * gradX) + (O22 * gradY);
-                  }
-
-#pragma omp for
-               for (int qx = 0; qx < quads1d; ++qx)
-               {
-                  for (int qy = 0; qy < quads1d; ++qy)
-                  {
-                     r_x[qy] = s_grad[0 * quads + qx + qy * quads1d];
-                     r_y[qy] = s_grad[1 * quads + qx + qy * quads1d];
-                  }
-                  for (int dy = 0; dy < dofs1d; ++dy)
-                  {
-                     double xy  = 0;
-                     double xDy = 0;
+                     for (int dy = 0; dy < dofs1d; ++dy) r_x[dy] = Ve[dx + dy * dofs1d];
                      for (int qy = 0; qy < quads1d; ++qy)
                      {
-                        xy  += r_x[qy] * s_shape1d[dy + qy * dofs1d];
-                        xDy += r_y[qy] * s_dshape1d[dy + qy * dofs1d];
+                        double xy = 0;
+                        double xDy = 0;
+                        for (int dy = 0; dy < dofs1d; ++dy)
+                        {
+                           xy  += r_x[dy] * s_shape1d[dy + qy * dofs1d];
+                           xDy += r_x[dy] * s_dshape1d[dy + qy * dofs1d];
+                        }
+                        s_xy[dx + qy * dofs1d]  = xy;
+                        s_xDy[dx + qy * dofs1d] = xDy;
                      }
-                     s_xy[dy + qx * dofs1d] = xy;
-                     s_xDy[dy + qx * dofs1d] = xDy;
                   }
-               }
 
 #pragma omp for collapse(2)
-               for (int dx = 0; dx < dofs1d; ++dx)
-                  for (int dy = 0; dy < dofs1d; ++dy)
-                  {
-                     double s = 0;
+                  for (int qy = 0; qy < quads1d; ++qy)
                      for (int qx = 0; qx < quads1d; ++qx)
-                        s += ((s_xy[dy + qx * dofs1d] * s_dshape1d[dx + qx * dofs1d]) +
-                              (s_xDy[dy + qx * dofs1d] * s_shape1d[dx + qx * dofs1d]));
-                     Ue[dx + dy * dofs1d] += s;
+                     {
+                        double gradX = 0, gradY = 0;
+                        for (int dx = 0; dx < dofs1d; ++dx)
+                        {
+                           gradX += s_xy[dx + qy * dofs1d]  * s_dshape1d[dx + qx * dofs1d];
+                           gradY += s_xDy[dx + qy * dofs1d] * s_shape1d[dx + qx * dofs1d];
+                        }
+
+                        const int q = qy * quads1d + qx;
+                        const double O11 = data_d[terms*q + 0];
+                        const double O12 = data_d[terms*q + 1];
+                        const double O22 = data_d[terms*q + 2];
+
+                        s_grad[0 * quads + qx + qy * quads1d] = (O11 * gradX) + (O12 * gradY);
+                        s_grad[1 * quads + qx + qy * quads1d] = (O12 * gradX) + (O22 * gradY);
+                     }
+
+#pragma omp for
+                  for (int qx = 0; qx < quads1d; ++qx)
+                  {
+                     for (int qy = 0; qy < quads1d; ++qy)
+                     {
+                        r_x[qy] = s_grad[0 * quads + qx + qy * quads1d];
+                        r_y[qy] = s_grad[1 * quads + qx + qy * quads1d];
+                     }
+                     for (int dy = 0; dy < dofs1d; ++dy)
+                     {
+                        double xy  = 0;
+                        double xDy = 0;
+                        for (int qy = 0; qy < quads1d; ++qy)
+                        {
+                           xy  += r_x[qy] * s_shape1d[dy + qy * dofs1d];
+                           xDy += r_y[qy] * s_dshape1d[dy + qy * dofs1d];
+                        }
+                        s_xy[dy + qx * dofs1d] = xy;
+                        s_xDy[dy + qx * dofs1d] = xDy;
+                     }
                   }
+
+#pragma omp for collapse(2)
+                  for (int dx = 0; dx < dofs1d; ++dx)
+                     for (int dy = 0; dy < dofs1d; ++dy)
+                     {
+                        double s = 0;
+                        for (int qx = 0; qx < quads1d; ++qx)
+                           s += ((s_xy[dy + qx * dofs1d] * s_dshape1d[dx + qx * dofs1d]) +
+                                 (s_xDy[dy + qx * dofs1d] * s_shape1d[dx + qx * dofs1d]));
+                        Ue[dx + dy * dofs1d] += s;
+                     }
+               }
             }
          }
       }
