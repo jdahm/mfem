@@ -13,6 +13,8 @@
 
 #include "fem.hpp"
 
+static const int max_batchsize = 128;
+
 namespace mfem
 {
 
@@ -979,8 +981,6 @@ static void EvalJacobians1D(const Vector &X,
    MFEM_ASSERT(Jac.SizeI() == dim, "");
    MFEM_ASSERT(Jac.SizeJ() == dim, "");
 
-   const int NE = Jac.SizeK();
-
    const int quads1d = shape1d.Width();
    const int dofs1d = shape1d.Height();
    const int quads = quads1d;
@@ -991,22 +991,40 @@ static void EvalJacobians1D(const Vector &X,
    const double *Xd = X.GetData();
    double *Jd = Jac.GetData(0);
 
-   for (int e = 0; e < NE; e++)
+   const int NE = Jac.SizeK();
+   const int batchsize = std::min(max_batchsize, (int) std::ceil((double) NE / 20));
+   const int num_batches = std::ceil((double) NE / batchsize);
+
+#pragma omp target teams is_device_ptr(Xd, Jd, ds1d) if (target:X.device.UseTarget())
    {
-      const int J_offset = e * quads * terms;
-      double *Je = Jd + J_offset;
 
-      const int x_offset = e * dofs * dim;
-      const double *Xe = Xd + x_offset;
-
-      for (int k = 0; k < quads * terms; k++) Je[k] = 0;
-
-      for (int j1 = 0; j1 < dofs1d; ++j1)
+#pragma omp distribute
+      for (int ebatch = 0; ebatch < num_batches; ++ebatch)
       {
-         const double *x = Xe + j1;
-         for (int k1 = 0; k1 < quads1d; ++k1)
+
+#pragma omp for
+         for (int el = 0; el < batchsize; ++el)
          {
-            Je[k1] += x[0] * ds1d[j1 + dofs1d * k1];
+            const int e = ebatch * batchsize + el;
+            if (e < NE)
+            {
+               const int J_offset = e * quads * terms;
+               double *Je = Jd + J_offset;
+
+               const int x_offset = e * dofs * dim;
+               const double *Xe = Xd + x_offset;
+
+               for (int k = 0; k < quads * terms; k++) Je[k] = 0;
+
+               for (int j1 = 0; j1 < dofs1d; ++j1)
+               {
+                  const double *x = Xe + j1;
+                  for (int k1 = 0; k1 < quads1d; ++k1)
+                  {
+                     Je[k1] += x[0] * ds1d[j1 + dofs1d * k1];
+                  }
+               }
+            }
          }
       }
    }
@@ -1021,8 +1039,6 @@ static void EvalJacobians2D(const Vector &X,
    MFEM_ASSERT(Jac.SizeI() == dim, "");
    MFEM_ASSERT(Jac.SizeJ() == dim, "");
 
-   const int NE = Jac.SizeK();
-
    const int quads1d = shape1d.Width();
    const int dofs1d = shape1d.Height();
 
@@ -1035,42 +1051,58 @@ static void EvalJacobians2D(const Vector &X,
    const double *Xd = X.GetData();
    double *Jd = Jac.GetData(0);
 
-   DenseMatrix Q(quads1d, dim);
-   double *Qd = Q.GetData();
+   const int NE = Jac.SizeK();
+   const int batchsize = std::min(max_batchsize, (int) std::ceil((double) NE / 20));
+   const int num_batches = std::ceil((double) NE / batchsize);
 
-   for (int e = 0; e < NE; e++)
+#pragma omp target teams is_device_ptr(Xd, Jd, s1d, ds1d) if (target:X.device.UseTarget())
    {
-      const int J_offset = e * quads * terms;
-      double *Je = Jd + J_offset;
+      double Qd[20];
 
-      const int x_offset = e * dofs * dim;
-      const double *Xe = Xd + x_offset;
-
-      for (int k = 0; k < quads * terms; k++) Je[k] = 0;
-
-      for (int l = 0; l < dim; l++)
+#pragma omp distribute
+      for (int ebatch = 0; ebatch < num_batches; ++ebatch)
       {
-         for (int j2 = 0; j2 < dofs1d; ++j2)
+
+#pragma omp for
+         for (int el = 0; el < batchsize; ++el)
          {
-            for (int k = 0; k < quads1d * dim; k++) Qd[k] = 0;
-            for (int j1 = 0; j1 < dofs1d; ++j1)
+            const int e = ebatch * batchsize + el;
+            if (e < NE)
             {
-               const double *x = Xe + j1 + dofs1d * j2 + dim * dofs;
-               for (int k1 = 0; k1 < quads1d; ++k1)
+               const int J_offset = e * quads * terms;
+               double *Je = Jd + J_offset;
+
+               const int x_offset = e * dofs * dim;
+               const double *Xe = Xd + x_offset;
+
+               for (int k = 0; k < quads * terms; k++) Je[k] = 0;
+
+               for (int l = 0; l < dim; l++)
                {
-                  Qd[k1 + 0 * quads1d] += x[0] * ds1d[j1 + dofs1d * k1];
-                  Qd[k1 + 1 * quads1d] += x[1] * s1d[j1 + dofs1d * k1];
-               }
-            }
-            for (int k2 = 0; k2 < quads1d; ++k2)
-            {
-               const double s = s1d[j2 + dofs1d * k2];
-               const double d = ds1d[j2 + dofs1d * k2];
-               for (int k1 = 0; k1 < quads1d; ++k1)
-               {
-                  const int k = k1 + k2 * quads1d;
-                  Je[l + 0 * dim + terms * k] += Qd[k1 + 0 * quads1d] * s;
-                  Je[l + 1 * dim + terms * k] += Qd[k1 + 1 * quads1d] * d;
+                  for (int j2 = 0; j2 < dofs1d; ++j2)
+                  {
+                     for (int k = 0; k < quads1d * dim; k++) Qd[k] = 0;
+                     for (int j1 = 0; j1 < dofs1d; ++j1)
+                     {
+                        const double *x = Xe + j1 + dofs1d * j2 + dim * dofs;
+                        for (int k1 = 0; k1 < quads1d; ++k1)
+                        {
+                           Qd[k1 + 0 * quads1d] += x[0] * ds1d[j1 + dofs1d * k1];
+                           Qd[k1 + 1 * quads1d] += x[1] * s1d[j1 + dofs1d * k1];
+                        }
+                     }
+                     for (int k2 = 0; k2 < quads1d; ++k2)
+                     {
+                        const double s = s1d[j2 + dofs1d * k2];
+                        const double d = ds1d[j2 + dofs1d * k2];
+                        for (int k1 = 0; k1 < quads1d; ++k1)
+                        {
+                           const int k = k1 + k2 * quads1d;
+                           Je[l + 0 * dim + terms * k] += Qd[k1 + 0 * quads1d] * s;
+                           Je[l + 1 * dim + terms * k] += Qd[k1 + 1 * quads1d] * d;
+                        }
+                     }
+                  }
                }
             }
          }
@@ -1087,8 +1119,6 @@ static void EvalJacobians3D(const Vector &X,
    MFEM_ASSERT(Jac.SizeI() == dim, "");
    MFEM_ASSERT(Jac.SizeJ() == dim, "");
 
-   const int NE = Jac.SizeK();
-
    const int quads1d = shape1d.Width();
    const int dofs1d = shape1d.Height();
 
@@ -1101,63 +1131,78 @@ static void EvalJacobians3D(const Vector &X,
    const double *Xd = X.GetData();
    double *Jd = Jac.GetData(0);
 
-   DenseMatrix Q(quads1d, dim);
-   DenseTensor QQ(dim, quads1d, quads1d);
-   double *Qd = Q.GetData();
-   double *QQd = Q.GetData();
+   const int NE = Jac.SizeK();
+   const int batchsize = std::min(max_batchsize, (int) std::ceil((double) NE / 20));
+   const int num_batches = std::ceil((double) NE / batchsize);
 
-   for (int e = 0; e < NE; e++)
+#pragma omp target teams is_device_ptr(Xd, Jd, s1d, ds1d) if (target:X.device.UseTarget())
    {
-      const int J_offset = e * quads * terms;
-      double *Je = Jd + J_offset;
+      double Qd[20];
+      double QQd[20];
 
-      const int x_offset = e * dofs * dim;
-      const double *Xe = Xd + x_offset;
-
-      for (int k = 0; k < quads * terms; k++) Je[k] = 0;
-
-      for (int l = 0; l < dim; l++)
+#pragma omp distribute
+      for (int ebatch = 0; ebatch < num_batches; ++ebatch)
       {
-         for (int j3 = 0; j3 < dofs1d; ++j3)
+
+#pragma omp for
+         for (int el = 0; el < batchsize; ++el)
          {
-            for (int k = 0; k < quads1d * quads1d * dim; k++) QQd[k] = 0;
-            for (int j2 = 0; j2 < dofs1d; ++j2)
+            const int e = ebatch * batchsize + el;
+            if (e < NE)
             {
-               for (int k = 0; k < quads1d * dim; k++) Qd[k] = 0;
-               for (int j1 = 0; j1 < dofs1d; ++j1)
+               const int J_offset = e * quads * terms;
+               double *Je = Jd + J_offset;
+
+               const int x_offset = e * dofs * dim;
+               const double *Xe = Xd + x_offset;
+
+               for (int k = 0; k < quads * terms; k++) Je[k] = 0;
+
+               for (int l = 0; l < dim; l++)
                {
-                  const double x = Xe[j1 + dofs1d * (j2 + dofs1d * j3) + dim * dofs];
-                  for (int k1 = 0; k1 < quads1d; ++k1)
+                  for (int j3 = 0; j3 < dofs1d; ++j3)
                   {
-                     Qd[k1 + 0 * quads1d] += x * ds1d[j1 + k1 * dofs1d];
-                     Qd[k1 + 1 * quads1d] += x * s1d[j1 + k1 * dofs1d];
+                     for (int k = 0; k < quads1d * quads1d * dim; k++) QQd[k] = 0;
+                     for (int j2 = 0; j2 < dofs1d; ++j2)
+                     {
+                        for (int k = 0; k < quads1d * dim; k++) Qd[k] = 0;
+                        for (int j1 = 0; j1 < dofs1d; ++j1)
+                        {
+                           const double x = Xe[j1 + dofs1d * (j2 + dofs1d * j3) + dim * dofs];
+                           for (int k1 = 0; k1 < quads1d; ++k1)
+                           {
+                              Qd[k1 + 0 * quads1d] += x * ds1d[j1 + k1 * dofs1d];
+                              Qd[k1 + 1 * quads1d] += x * s1d[j1 + k1 * dofs1d];
+                           }
+                        }
+                        for (int k2 = 0; k2 < quads1d; ++k2)
+                        {
+                           const double s = s1d[j2 + dofs1d * k2];
+                           const double d = ds1d[j2 + dofs1d * k2];
+                           for (int k1 = 0; k1 < quads1d; ++k1)
+                           {
+                              const int k = k1 + quads1d * k2;
+                              QQd[0 + dim * k] += s * Qd[k1 + 0 * quads1d];
+                              QQd[1 + dim * k] += d * Qd[k1 + 1 * quads1d];
+                              QQd[2 + dim * k] += s * Qd[k1 + 1 * quads1d];
+                           }
+                        }
+                     }
+                     for (int k3 = 0; k3 < quads1d; ++k3)
+                     {
+                        const double s = s1d[j3 + dofs1d * k3];
+                        const double d = ds1d[j3 + dofs1d * k3];
+                        for (int k2 = 0; k2 < quads1d; ++k2)
+                           for (int k1 = 0; k1 < quads1d; ++k1)
+                           {
+                              const int k = k1 + quads1d * (k2 + quads1d * k3);
+                              Je[l + 0 * dim + terms * k] += s * QQd[0 + dim * k];
+                              Je[l + 1 * dim + terms * k] += s * QQd[1 + dim * k];
+                              Je[l + 2 * dim + terms * k] += d * QQd[2 + dim * k];
+                           }
+                     }
                   }
                }
-               for (int k2 = 0; k2 < quads1d; ++k2)
-               {
-                  const double s = s1d[j2 + dofs1d * k2];
-                  const double d = ds1d[j2 + dofs1d * k2];
-                  for (int k1 = 0; k1 < quads1d; ++k1)
-                  {
-                     const int k = k1 + quads1d * k2;
-                     QQd[0 + dim * k] += s * Qd[k1 + 0 * quads1d];
-                     QQd[1 + dim * k] += d * Qd[k1 + 1 * quads1d];
-                     QQd[2 + dim * k] += s * Qd[k1 + 1 * quads1d];
-                  }
-               }
-            }
-            for (int k3 = 0; k3 < quads1d; ++k3)
-            {
-               const double s = s1d[j3 + dofs1d * k3];
-               const double d = ds1d[j3 + dofs1d * k3];
-               for (int k2 = 0; k2 < quads1d; ++k2)
-                  for (int k1 = 0; k1 < quads1d; ++k1)
-                  {
-                     const int k = k1 + quads1d * (k2 + quads1d * k3);
-                     Je[l + 0 * dim + terms * k] += s * QQd[0 + dim * k];
-                     Je[l + 1 * dim + terms * k] += s * QQd[1 + dim * k];
-                     Je[l + 2 * dim + terms * k] += d * QQd[2 + dim * k];
-                  }
             }
          }
       }
