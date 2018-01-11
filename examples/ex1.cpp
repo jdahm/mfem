@@ -221,13 +221,17 @@ int main(int argc, char *argv[])
       umf_solver.SetOperator(A_sp);
       umf_solver.Mult(B, X);
    }
+   else
+   {
+      mfem_error("Requires full assembly");
+   }
 #endif
    StopParallel();
-   // 11. Recover the solution as a finite element grid function.
-   a->RecoverFEMSolution(X, *b, x);
-
    tic_toc.Stop();
    cout << " done, " << tic_toc.RealTime() << "s." << endl;
+
+   // 11. Recover the solution as a finite element grid function.
+   a->RecoverFEMSolution(X, *b, x);
 
    // 12. Save the refined mesh and the solution. This output can be viewed later
    //     using GLVis: "glvis -m refined.mesh -g sol.gf".

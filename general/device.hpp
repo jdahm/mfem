@@ -17,7 +17,6 @@
 namespace mfem
 {
 
-extern bool skip_target;
 extern bool use_parallel;
 
 struct DeviceSpec
@@ -29,16 +28,14 @@ struct DeviceSpec
    };
 
    enum Class type;
-   int id;  /// Will be used in the near future to denote the device number for OpenMP
 
-   DeviceSpec() : type(HOST), id(0) { }
+   DeviceSpec() : type(HOST) { }
 
    void UseAcc() { type = ACCEL; }
-   bool UseTarget() const { return (type == ACCEL) && (!skip_target); }
+   bool UseTarget() const { return (type == ACCEL); }
 };
 
 void SetDefaultAccelerator(int id);
-void UseHost();
 
 void StartParallel();
 void StopParallel();

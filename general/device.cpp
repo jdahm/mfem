@@ -12,6 +12,7 @@
 #ifndef MFEM_DEVICE
 #define MFEM_DEVICE
 
+#include "../config/config.hpp"
 #include "device.hpp"
 
 #if defined(MFEM_USE_OPENMP)
@@ -21,16 +22,12 @@
 namespace mfem
 {
 
-bool skip_target = false;
-
 void SetDefaultAccelerator(int id)
 {
 #if defined(MFEM_USE_OPENMP)
      omp_set_default_device(id);
 #endif
 }
-
-void UseHost() { skip_target = true; }
 
 bool use_parallel = false;
 void StartParallel() { use_parallel = true; }

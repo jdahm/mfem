@@ -497,9 +497,9 @@ void FESDiffusionIntegrator::AddMult(const Vector &x, Vector &y)
    {
       switch (dim)
       {
-      case 1: MultSeg_Device(x, y); break;
-      case 2: MultQuad_Device(x, y); break;
-      case 3: MultHex_Device(x, y); break;
+      case 1: MultSeg_Target(x, y); break;
+      case 2: MultQuad_Target(x, y); break;
+      case 3: MultHex_Target(x, y); break;
       default: mfem_error("Not yet supported"); break;
       }
    }
@@ -876,9 +876,9 @@ void FESMassIntegrator::AddMult(const Vector &x, Vector &y)
    {
       switch (dim)
       {
-      case 1: MultSeg_Device(x, y); break;
-      case 2: MultQuad_Device(x, y); break;
-      case 3: MultHex_Device(x, y); break;
+      case 1: MultSeg_Target(x, y); break;
+      case 2: MultQuad_Target(x, y); break;
+      case 3: MultHex_Target(x, y); break;
       default: mfem_error("Not yet supported"); break;
       }
    }

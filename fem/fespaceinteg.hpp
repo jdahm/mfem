@@ -51,9 +51,9 @@ protected:
    void MultHex_Host(const Vector &V, Vector &U);
 
    // Device methods with finer parallelism
-   void MultSeg_Device(const Vector &V, Vector &U);
-   void MultQuad_Device(const Vector &V, Vector &U);
-   void MultHex_Device(const Vector &V, Vector &U);
+   void MultSeg_Target(const Vector &V, Vector &U);
+   void MultQuad_Target(const Vector &V, Vector &U);
+   void MultHex_Target(const Vector &V, Vector &U);
 
 public:
    FESDiffusionIntegrator(DiffusionIntegrator *_integ) : integ(_integ) { }
@@ -83,9 +83,9 @@ protected:
    void MultHex_Host(const Vector &V, Vector &U);
 
    // Device methods with finer parallelism
-   void MultSeg_Device(const Vector &V, Vector &U);
-   void MultQuad_Device(const Vector &V, Vector &U);
-   void MultHex_Device(const Vector &V, Vector &U);
+   void MultSeg_Target(const Vector &V, Vector &U);
+   void MultQuad_Target(const Vector &V, Vector &U);
+   void MultHex_Target(const Vector &V, Vector &U);
 
 public:
    FESMassIntegrator(MassIntegrator *_integ) : integ(_integ), vinteg(NULL) { }

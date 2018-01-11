@@ -49,6 +49,7 @@ int main(int argc, char *argv[])
    MPI_Init(&argc, &argv);
    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+   SetDefaultAccelerator(myid);
 
    // 2. Parse command-line options.
    const char *mesh_file = "../data/star.mesh";
@@ -91,8 +92,6 @@ int main(int argc, char *argv[])
       args.PrintOptions(cout);
    }
 
-   if (!use_accelerator) { UseHost(); }
-
    // 3. Read the (serial) mesh from the given mesh file on all processors.  We
    //    can handle triangular, quadrilateral, tetrahedral, hexahedral, surface
    //    and volume meshes with the same code.
@@ -116,6 +115,7 @@ int main(int argc, char *argv[])
    //    this mesh further in parallel to increase the resolution. Once the
    //    parallel mesh is defined, the serial mesh can be deleted.
    ParMesh *pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
+   if (use_accelerator) { pmesh->device.UseAcc(); }
    delete mesh;
    {
       int par_ref_levels = 2;
@@ -188,19 +188,24 @@ int main(int argc, char *argv[])
    }
    else
    {
-      a->AddIntegrator(new PADiffusionIntegrator(new DiffusionIntegrator(one)));
+      a->AddIntegrator(new FESDiffusionIntegrator(new DiffusionIntegrator(one)));
    }
 
    // Use the global map instead
-   DeviceVector B, X;
+   Vector B, X;
+   if (use_accelerator)
+   {
+      // Shortcut: use DeviceVector instead
+      B.device.UseAcc();
+      X.device.UseAcc();
+   }
 
    if (static_cond) { a->EnableStaticCondensation(); }
    // 11. Assemble the parallel bilinear form and the corresponding linear
    //     system, applying any necessary transformations such as: parallel
    //     assembly, eliminating boundary conditions, applying conforming
    //     constraints for non-conforming AMR, static condensation, etc.
-   a->AssembleForm(p_assembly ?
-                   BilinearForm::PARTIAL : BilinearForm::FULL);
+   a->AssembleForm(p_assembly ? PartialAssembly : FullAssembly);
 
    Operator *A;
    a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B);
@@ -242,11 +247,17 @@ int main(int argc, char *argv[])
       mfem_pcg->SetPrintLevel(1);
       mfem_pcg->SetOperator(*A);
    }
+   cout << "Solving the linear system ..." << flush;
+   tic_toc.Clear();
+   tic_toc.Start();
    pcg->Mult(B, X);
+   tic_toc.Stop();
+   cout << " done, " << tic_toc.RealTime() << "s." << endl;
 
    // 13. Recover the parallel grid function corresponding to X. This is the
    //     local finite element solution on each processor.
    a->RecoverFEMSolution(X, *b, x);
+
 
    // 14. Save the refined mesh and the solution in parallel. This output can
    //     be viewed later using GLVis: "glvis -np <np> -m mesh -g sol".

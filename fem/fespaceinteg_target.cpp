@@ -13,9 +13,10 @@
 
 #include "fem.hpp"
 #include <stdio.h>
-#include <omp.h>
 
+// Remove this when the 3D integrators are "fixed"
 #if defined(MFEM_USE_OPENMP)
+#include <omp.h>
 
 static const int max_order = 6;
 static const int max_quads1d = max_order+2;
@@ -29,7 +30,7 @@ static const int max_batchsize = 128;
 namespace mfem
 {
 
-void FESDiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
+void FESDiffusionIntegrator::MultSeg_Target(const Vector &V, Vector &U)
 {
    const int dim = 1;
    const int terms = dim*(dim+1)/2;
@@ -109,7 +110,7 @@ void FESDiffusionIntegrator::MultSeg_Device(const Vector &V, Vector &U)
    }
 }
 
-void FESDiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
+void FESDiffusionIntegrator::MultQuad_Target(const Vector &V, Vector &U)
 {
    const int dim = 2;
    const int terms = dim*(dim+1)/2;
@@ -250,7 +251,7 @@ void FESDiffusionIntegrator::MultQuad_Device(const Vector &V, Vector &U)
    }
 }
 
-void FESDiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
+void FESDiffusionIntegrator::MultHex_Target(const Vector &V, Vector &U)
 {
    const int dim = 3;
    const int terms = dim*(dim+1)/2;
@@ -430,7 +431,7 @@ void FESDiffusionIntegrator::MultHex_Device(const Vector &V, Vector &U)
    }
 }
 
-void FESMassIntegrator::MultSeg_Device(const Vector &V, Vector &U)
+void FESMassIntegrator::MultSeg_Target(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
@@ -504,7 +505,7 @@ void FESMassIntegrator::MultSeg_Device(const Vector &V, Vector &U)
    }
 }
 
-void FESMassIntegrator::MultQuad_Device(const Vector &V, Vector &U)
+void FESMassIntegrator::MultQuad_Target(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
@@ -618,7 +619,7 @@ void FESMassIntegrator::MultQuad_Device(const Vector &V, Vector &U)
    }
 }
 
-void FESMassIntegrator::MultHex_Device(const Vector &V, Vector &U)
+void FESMassIntegrator::MultHex_Target(const Vector &V, Vector &U)
 {
    const int dofs1d = shape1d.Height();
    const int quads1d = shape1d.Width();
@@ -738,6 +739,43 @@ void FESMassIntegrator::MultHex_Device(const Vector &V, Vector &U)
          }
       }
    }
+}
+
+}
+
+#else
+
+namespace mfem
+{
+
+void FESDiffusionIntegrator::MultSeg_Target(const Vector &V, Vector &U)
+{
+   mfem_error("Not supported");
+}
+
+void FESDiffusionIntegrator::MultQuad_Target(const Vector &V, Vector &U)
+{
+   mfem_error("Not supported");
+}
+
+void FESDiffusionIntegrator::MultHex_Target(const Vector &V, Vector &U)
+{
+   mfem_error("Not supported");
+}
+
+void FESMassIntegrator::MultSeg_Target(const Vector &V, Vector &U)
+{
+   mfem_error("Not supported");
+}
+
+void FESMassIntegrator::MultQuad_Target(const Vector &V, Vector &U)
+{
+   mfem_error("Not supported");
+}
+
+void FESMassIntegrator::MultHex_Target(const Vector &V, Vector &U)
+{
+   mfem_error("Not supported");
 }
 
 }
