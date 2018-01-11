@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
    // 3. Read the (serial) mesh from the given mesh file on all processors.  We
    //    can handle triangular, quadrilateral, tetrahedral, hexahedral, surface
    //    and volume meshes with the same code.
-   Mesh *mesh = new DeviceMesh(mesh_file, 1, 1);
+   Mesh *mesh = new Mesh(mesh_file, 1, 1);
    int dim = mesh->Dimension();
 
    // 4. Refine the serial mesh on all processors to increase the resolution. In
@@ -247,12 +247,18 @@ int main(int argc, char *argv[])
       mfem_pcg->SetPrintLevel(1);
       mfem_pcg->SetOperator(*A);
    }
-   cout << "Solving the linear system ..." << flush;
-   tic_toc.Clear();
-   tic_toc.Start();
+   if (myid == 0)
+   {
+      cout << "Solving the linear system ..." << flush;
+      tic_toc.Clear();
+      tic_toc.Start();
+   }
    pcg->Mult(B, X);
-   tic_toc.Stop();
-   cout << " done, " << tic_toc.RealTime() << "s." << endl;
+   if (myid == 0)
+   {
+      tic_toc.Stop();
+      cout << " done, " << tic_toc.RealTime() << "s." << endl;
+   }
 
    // 13. Recover the parallel grid function corresponding to X. This is the
    //     local finite element solution on each processor.

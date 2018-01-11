@@ -82,12 +82,8 @@ int main(int argc, char *argv[])
    //    quadrilateral, tetrahedral, hexahedral, surface and volume meshes with
    //    the same code.
    Mesh *mesh = new Mesh(mesh_file, 1, 1);
-   if (use_accelerator)
-   {
-      // Shortcut: use DeviceMesh
-      mesh->device.UseAcc();
-   }
    int dim = mesh->Dimension();
+   if (use_accelerator) { mesh->device.UseAcc(); }
 
    // 3. Refine the mesh to increase the resolution. In this example we do
    //    'ref_levels' of uniform refinement. We choose 'ref_levels' to be the
@@ -194,7 +190,7 @@ int main(int argc, char *argv[])
 
    cout << "Size of linear system: " << A->Height() << endl;
 
-   cout << "Solving the linear system ..." << flush;
+   cout << "Solving the linear system ..." << endl;
    tic_toc.Clear();
    tic_toc.Start();
 
