@@ -2366,10 +2366,16 @@ void ConformingProlongationOperator::Mult(const Vector &x, Vector &y) const
    const int in_layout = 2; // 2 - input is ltdofs array
    gc.BcastBegin(const_cast<double*>(xdata), in_layout);
 
+   const bool use_target = (x.device.UseTarget() && y.device.UseTarget());
+
+#pragma omp target teams distribute \
+   is_device_ptr(xdata, ydata, eldofdata)    \
+   if(target:use_target)
    for (int i = 0; i < m; i++)
    {
       const int j = (i > 0) ? eldofdata[i-1]+1 : 0;
       const int end = eldofdata[i];
+#pragma omp parallel for if(parallel:use_parallel)
       for (int k = 0; k < end-j; k++) ydata[k+j] = xdata[k+j-i];
    }
    const int j = (m > 0) ? eldofdata[m-1]+1 : 0;
@@ -2393,10 +2399,16 @@ void ConformingProlongationOperator::MultTranspose(
 
    gc.ReduceBegin(xdata);
 
+   const bool use_target = (x.device.UseTarget() && y.device.UseTarget());
+
+#pragma omp target teams distribute             \
+   is_device_ptr(xdata, ydata, eldofdata)   \
+   if(target:use_target)
    for (int i = 0; i < m; i++)
    {
       const int j = (i > 0) ? eldofdata[i-1]+1 : 0;
       const int end = eldofdata[i];
+#pragma omp parallel for if(parallel:use_parallel)
       for (int k = 0; k < end-j; k++) ydata[k+j-i] = xdata[k+j];
    }
    const int j = (m > 0) ? eldofdata[m-1]+1 : 0;
