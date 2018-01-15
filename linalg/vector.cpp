@@ -105,18 +105,15 @@ double Vector::operator*(const Vector &v) const
 
 Vector &Vector::operator=(const double *v)
 {
-   double *d = GetData();
-
    if (GetData() != v)
    {
-      MFEM_ASSERT(GetData() + Size() <= v || v + Size() <= GetData(), "Vectors overlap!");
+      const int size = Size();
+      double *d = GetData();
+      MFEM_ASSERT(d + size <= v || v + size <= d, "Vectors overlap!");
 #if defined(MFEM_USE_OPENMP)
 #pragma omp target teams distribute parallel for if(target:device.UseTarget()) is_device_ptr(d, v) if(parallel:use_parallel)
 #endif
-      for (int i = 0; i < Size(); i++)
-      {
-         d[i] = v[i];
-      }
+      for (int i = 0; i < Size(); i++) d[i] = v[i];
    }
    return *this;
 }
@@ -125,7 +122,7 @@ Vector &Vector::operator=(const Vector &v)
 {
    device = v.device;
    SetSize(v.Size());
-   return operator=(v.data);
+   return operator=(v.GetData());
 }
 
 Vector &Vector::operator=(double value)
