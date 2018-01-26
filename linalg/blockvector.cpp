@@ -20,7 +20,7 @@ void BlockVector::SetBlocks()
 {
    for (int i = 0; i < numBlocks; ++i)
    {
-      blocks[i].NewDataAndSize(data+blockOffsets[i],
+      blocks[i].NewDataAndSize(data.GetData()+blockOffsets[i],
                                blockOffsets[i+1]-blockOffsets[i]);
    }
 }
@@ -107,12 +107,6 @@ void BlockVector::Update(const Array<int> &bOffsets)
    SetBlocks();
 }
 
-void BlockVector::Update(const double *data, const Array<int> & bOffsets)
-{
-   double *d = const_cast<double *>(data);
-   Update(d, bOffsets);
-}
-
 BlockVector & BlockVector::operator=(const BlockVector & original)
 {
    if (numBlocks!=original.numBlocks)
@@ -141,16 +135,6 @@ BlockVector & BlockVector::operator=(double val)
 BlockVector::~BlockVector()
 {
    delete [] blocks;
-}
-
-Vector & BlockVector::GetBlock(int i)
-{
-   return blocks[i];
-}
-
-const Vector &  BlockVector::GetBlock(int i) const
-{
-   return blocks[i];
 }
 
 void BlockVector::GetBlockView(int i, Vector & blockView)

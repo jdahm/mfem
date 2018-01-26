@@ -137,8 +137,8 @@ public:
    /// Return a pointer to the beginning of the Vector data.
    /** @warning This method should be used with caution as it gives write access
        to the data of const-qualified Vector%s. */
-   inline double *GetData() { return data; }
-   inline const double *GetData() const { return data; }
+   inline double *GetData() { return data.GetData(); }
+   inline double *GetData() const { return const_cast<double*>(data.GetData()); }
 
    /// Conversion to `double *`.
    /** @note This conversion function makes it possible to use [] for indexing
