@@ -20,7 +20,7 @@ void BlockVector::SetBlocks()
 {
    for (int i = 0; i < numBlocks; ++i)
    {
-      blocks[i].NewDataAndSize(data+blockOffsets[i],
+      blocks[i].NewDataAndSize(GetData()+blockOffsets[i],
                                blockOffsets[i+1]-blockOffsets[i]);
    }
 }
@@ -139,7 +139,7 @@ BlockVector::~BlockVector()
 
 void BlockVector::GetBlockView(int i, Vector & blockView)
 {
-   blockView.NewDataAndSize(data+blockOffsets[i],
+   blockView.NewDataAndSize(GetData()+blockOffsets[i],
                             blockOffsets[i+1]-blockOffsets[i]);
 }
 

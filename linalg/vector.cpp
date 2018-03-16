@@ -28,24 +28,6 @@
 namespace mfem
 {
 
-Vector::Vector(const Vector &v)
-{
-   int s = v.Size();
-
-   if (s > 0)
-   {
-      MFEM_ASSERT(v.data, "invalid source vector");
-      allocsize = size = s;
-      data = new double[s];
-      std::memcpy(data, v.data, sizeof(double)*s);
-   }
-   else
-   {
-      allocsize = size = 0;
-      data = NULL;
-   }
-}
-
 void Vector::Load(std::istream **in, int np, int *dim)
 {
    int i, j, s;
@@ -58,6 +40,7 @@ void Vector::Load(std::istream **in, int np, int *dim)
 
    SetSize(s);
 
+   double *data = array.GetData();
    int p = 0;
    for (i = 0; i < np; i++)
       for (j = 0; j < dim[i]; j++)
@@ -70,9 +53,9 @@ void Vector::Load(std::istream &in, int Size)
 {
    SetSize(Size);
 
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size; i++)
    {
-      in >> data[i];
+      in >> array[i];
    }
 }
 
@@ -88,8 +71,8 @@ const double &Vector::Elem(int i) const
 
 double Vector::operator*(const double *v) const
 {
-   int s = size;
-   const double *d = data;
+   int s = array.Size();
+   const double *d = array.GetData();
    double prod = 0.0;
 #ifdef MFEM_USE_OPENMP
    #pragma omp parallel for reduction(+:prod)
@@ -103,18 +86,15 @@ double Vector::operator*(const double *v) const
 
 double Vector::operator*(const Vector &v) const
 {
-#ifdef MFEM_DEBUG
-   if (v.size != size)
-   {
-      mfem_error("Vector::operator*(const Vector &) const");
-   }
-#endif
+   MFEM_ASSERT(v.Size() == Size(), "Vector::operator*(const Vector &) const");
 
-   return operator*(v.data);
+   return operator*(v.GetData());
 }
 
 Vector &Vector::operator=(const double *v)
 {
+   double *data = GetData();
+   const int size = Size();
    if (data != v)
    {
       MFEM_ASSERT(data + size <= v || v + size <= data, "Vectors overlap!");
@@ -126,14 +106,13 @@ Vector &Vector::operator=(const double *v)
 Vector &Vector::operator=(const Vector &v)
 {
    SetSize(v.Size());
-   return operator=(v.data);
+   return operator=(v.GetData());
 }
 
 Vector &Vector::operator=(double value)
 {
-   int i, s = size;
-   double *p = data, v = value;
-   for (i = 0; i < s; i++)
+   double *p = GetData(), v = value;
+   for (int i = 0; i < Size(); i++)
    {
       *(p++) = v;
    }
@@ -142,75 +121,60 @@ Vector &Vector::operator=(double value)
 
 Vector &Vector::operator*=(double c)
 {
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      data[i] *= c;
+      array[i] *= c;
    }
    return *this;
 }
 
 Vector &Vector::operator/=(double c)
 {
-   double m = 1.0/c;
-   for (int i = 0; i < size; i++)
+   const double m = 1.0/c;
+   for (int i = 0; i < Size(); i++)
    {
-      data[i] *= m;
+      array[i] *= m;
    }
    return *this;
 }
 
 Vector &Vector::operator-=(double c)
 {
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      data[i] -= c;
+      array[i] -= c;
    }
    return *this;
 }
 
 Vector &Vector::operator-=(const Vector &v)
 {
-#ifdef MFEM_DEBUG
-   if (size != v.size)
+   MFEM_ASSERT(Size() == v.Size(), "Vector::operator-=(const Vector &)");
+   for (int i = 0; i < Size(); i++)
    {
-      mfem_error("Vector::operator-=(const Vector &)");
-   }
-#endif
-   for (int i = 0; i < size; i++)
-   {
-      data[i] -= v(i);
+      array[i] -= v(i);
    }
    return *this;
 }
 
 Vector &Vector::operator+=(const Vector &v)
 {
-#ifdef MFEM_DEBUG
-   if (size != v.size)
+   MFEM_ASSERT(Size() == v.Size(), "Vector::operator+=(const Vector &)");
+   for (int i = 0; i < Size(); i++)
    {
-      mfem_error("Vector::operator+=(const Vector &)");
-   }
-#endif
-   for (int i = 0; i < size; i++)
-   {
-      data[i] += v(i);
+      array[i] += v(i);
    }
    return *this;
 }
 
 Vector &Vector::Add(const double a, const Vector &Va)
 {
-#ifdef MFEM_DEBUG
-   if (size != Va.size)
-   {
-      mfem_error("Vector::Add(const double, const Vector &)");
-   }
-#endif
+   MFEM_ASSERT(Size() == Va.Size(), "Vector::Add(const double, const Vector &)");
    if (a != 0.0)
    {
-      for (int i = 0; i < size; i++)
+      for (int i = 0; i < Size(); i++)
       {
-         data[i] += a * Va(i);
+         array[i] += a * Va(i);
       }
    }
    return *this;
@@ -218,71 +182,51 @@ Vector &Vector::Add(const double a, const Vector &Va)
 
 Vector &Vector::Set(const double a, const Vector &Va)
 {
-#ifdef MFEM_DEBUG
-   if (size != Va.size)
+   MFEM_ASSERT(Size() == Va.Size(), "Vector::Set(const double, const Vector &)");
+   for (int i = 0; i < Size(); i++)
    {
-      mfem_error("Vector::Set(const double, const Vector &)");
-   }
-#endif
-   for (int i = 0; i < size; i++)
-   {
-      data[i] = a * Va(i);
+      array[i] = a * Va(i);
    }
    return *this;
 }
 
 void Vector::SetVector(const Vector &v, int offset)
 {
-   int vs = v.Size();
-   double *vp = v.data, *p = data + offset;
-
-#ifdef MFEM_DEBUG
-   if (offset+vs > size)
-   {
-      mfem_error("Vector::SetVector(const Vector &, int)");
-   }
-#endif
-
-   for (int i = 0; i < vs; i++)
-   {
-      p[i] = vp[i];
-   }
+   const double *vp = v.GetData();
+   double *p = GetData() + offset;
+   MFEM_ASSERT(offset+v.Size() <= Size(), "Vector::SetVector(const Vector &, int)");
+   std::memcpy(p, vp, sizeof(double)*v.Size());
 }
 
 void Vector::Neg()
 {
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      data[i] = -data[i];
+      array[i] = -array[i];
    }
 }
 
 void add(const Vector &v1, const Vector &v2, Vector &v)
 {
-#ifdef MFEM_DEBUG
-   if (v.size != v1.size || v.size != v2.size)
-   {
-      mfem_error("add(Vector &v1, Vector &v2, Vector &v)");
-   }
-#endif
+   const int vs = v.Size(), v1s = v1.Size(), v2s = v2.Size();
+   const double *v1p = v1.GetData(), *v2p = v2.GetData();
+   double *vp = v.GetData();
+   MFEM_ASSERT((vs == v1s) && (vs == v2s), "add(Vector &v1, Vector &v2, Vector &v)");
 
 #ifdef MFEM_USE_OPENMP
    #pragma omp parallel for
 #endif
-   for (int i = 0; i < v.size; i++)
+   for (int i = 0; i < vs; i++)
    {
-      v.data[i] = v1.data[i] + v2.data[i];
+      vp[i] = v1p[i] + v2p[i];
    }
 }
 
 void add(const Vector &v1, double alpha, const Vector &v2, Vector &v)
 {
-#ifdef MFEM_DEBUG
-   if (v.size != v1.size || v.size != v2.size)
-   {
-      mfem_error ("add(Vector &v1, double alpha, Vector &v2, Vector &v)");
-   }
-#endif
+   const int vs = v.Size(), v1s = v1.Size(), v2s = v2.Size();
+   MFEM_ASSERT((vs == v1s) && (vs == v2s), "add(Vector &v1, double alpha, Vector &v2, Vector &v)");
+
    if (alpha == 0.0)
    {
       v = v1;
@@ -293,13 +237,12 @@ void add(const Vector &v1, double alpha, const Vector &v2, Vector &v)
    }
    else
    {
-      const double *v1p = v1.data, *v2p = v2.data;
-      double *vp = v.data;
-      int s = v.size;
+      const double *v1p = v1.GetData(), *v2p = v2.GetData();
+      double *vp = v.GetData();
 #ifdef MFEM_USE_OPENMP
       #pragma omp parallel for
 #endif
-      for (int i = 0; i < s; i++)
+      for (int i = 0; i < vs; i++)
       {
          vp[i] = v1p[i] + alpha*v2p[i];
       }
@@ -308,11 +251,10 @@ void add(const Vector &v1, double alpha, const Vector &v2, Vector &v)
 
 void add(const double a, const Vector &x, const Vector &y, Vector &z)
 {
-#ifdef MFEM_DEBUG
-   if (x.size != y.size || x.size != z.size)
-      mfem_error ("add(const double a, const Vector &x, const Vector &y,"
-                  " Vector &z)");
-#endif
+   const int xs = x.Size(), ys = y.Size(), zs = z.Size();
+   MFEM_ASSERT((xs == ys) && (xs == zs),
+               "add(const double a, const Vector &x, const Vector &y,"
+               " Vector &z)");
    if (a == 0.0)
    {
       z = 0.0;
@@ -323,15 +265,13 @@ void add(const double a, const Vector &x, const Vector &y, Vector &z)
    }
    else
    {
-      const double *xp = x.data;
-      const double *yp = y.data;
-      double       *zp = z.data;
-      int            s = x.size;
+      const double *xp = x.GetData(), *yp = y.GetData();
+      double *zp = z.GetData();
 
 #ifdef MFEM_USE_OPENMP
       #pragma omp parallel for
 #endif
-      for (int i = 0; i < s; i++)
+      for (int i = 0; i < zs; i++)
       {
          zp[i] = a * (xp[i] + yp[i]);
       }
@@ -341,11 +281,10 @@ void add(const double a, const Vector &x, const Vector &y, Vector &z)
 void add(const double a, const Vector &x,
          const double b, const Vector &y, Vector &z)
 {
-#ifdef MFEM_DEBUG
-   if (x.size != y.size || x.size != z.size)
-      mfem_error("add(const double a, const Vector &x,\n"
+   const int xs = x.Size(), ys = y.Size(), zs = z.Size();
+   MFEM_ASSERT((xs == ys) && (xs == zs),
+               "add(const double a, const Vector &x,\n"
                  "    const double b, const Vector &y, Vector &z)");
-#endif
    if (a == 0.0)
    {
       z.Set(b, y);
@@ -368,15 +307,13 @@ void add(const double a, const Vector &x,
    }
    else
    {
-      const double *xp = x.data;
-      const double *yp = y.data;
-      double       *zp = z.data;
-      int            s = x.size;
+      const double *xp = x.GetData(), *yp = y.GetData();
+      double *zp = z.GetData();
 
 #ifdef MFEM_USE_OPENMP
       #pragma omp parallel for
 #endif
-      for (int i = 0; i < s; i++)
+      for (int i = 0; i < zs; i++)
       {
          zp[i] = a * xp[i] + b * yp[i];
       }
@@ -385,21 +322,16 @@ void add(const double a, const Vector &x,
 
 void subtract(const Vector &x, const Vector &y, Vector &z)
 {
-#ifdef MFEM_DEBUG
-   if (x.size != y.size || x.size != z.size)
-   {
-      mfem_error ("subtract(const Vector &, const Vector &, Vector &)");
-   }
-#endif
-   const double *xp = x.data;
-   const double *yp = y.data;
-   double       *zp = z.data;
-   int            s = x.size;
+   const int xs = x.Size(), ys = y.Size(), zs = z.Size();
+   MFEM_ASSERT((xs == ys) && (xs == zs),
+               "subtract(const Vector &, const Vector &, Vector &)");
+   const double *xp = x.GetData(), *yp = y.GetData();
+   double *zp = z.GetData();
 
 #ifdef MFEM_USE_OPENMP
    #pragma omp parallel for
 #endif
-   for (int i = 0; i < s; i++)
+   for (int i = 0; i < zs; i++)
    {
       zp[i] = xp[i] - yp[i];
    }
@@ -407,11 +339,10 @@ void subtract(const Vector &x, const Vector &y, Vector &z)
 
 void subtract(const double a, const Vector &x, const Vector &y, Vector &z)
 {
-#ifdef MFEM_DEBUG
-   if (x.size != y.size || x.size != z.size)
-      mfem_error("subtract(const double a, const Vector &x,"
-                 " const Vector &y, Vector &z)");
-#endif
+   const int xs = x.Size(), ys = y.Size(), zs = z.Size();
+   MFEM_ASSERT((xs == ys) && (xs == zs),
+               "subtract(const double a, const Vector &x,"
+               " const Vector &y, Vector &z)");
 
    if (a == 0.)
    {
@@ -423,15 +354,13 @@ void subtract(const double a, const Vector &x, const Vector &y, Vector &z)
    }
    else
    {
-      const double *xp = x.data;
-      const double *yp = y.data;
-      double       *zp = z.data;
-      int            s = x.size;
+      const double *xp = x.GetData(), *yp = y.GetData();
+      double *zp = z.GetData();
 
 #ifdef MFEM_USE_OPENMP
       #pragma omp parallel for
 #endif
-      for (int i = 0; i < s; i++)
+      for (int i = 0; i < zs; i++)
       {
          zp[i] = a * (xp[i] - yp[i]);
       }
@@ -440,105 +369,83 @@ void subtract(const double a, const Vector &x, const Vector &y, Vector &z)
 
 void Vector::median(const Vector &lo, const Vector &hi)
 {
-   double *v = data;
-
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      if (v[i] < lo[i])
+      if (array[i] < lo(i))
       {
-         v[i] = lo[i];
+         array[i] = lo(i);
       }
-      else if (v[i] > hi[i])
+      else if (array[i] > hi(i))
       {
-         v[i] = hi[i];
+         array[i] = hi(i);
       }
    }
 }
 
 void Vector::GetSubVector(const Array<int> &dofs, Vector &elemvect) const
 {
-   int i, j, n = dofs.Size();
+   elemvect.SetSize(dofs.Size());
 
-   elemvect.SetSize (n);
-
-   for (i = 0; i < n; i++)
+   for (int i = 0; i < elemvect.Size(); i++)
    {
-      if ((j=dofs[i]) >= 0)
-      {
-         elemvect(i) = data[j];
-      }
-      else
-      {
-         elemvect(i) = -data[-1-j];
-      }
+      const int j = dofs[i];
+      elemvect(i) = (j >= 0) ? array[j] : -array[-1-j];
    }
 }
 
 void Vector::GetSubVector(const Array<int> &dofs, double *elem_data) const
 {
-   int i, j, n = dofs.Size();
-
-   for (i = 0; i < n; i++)
+   for (int i = 0; i < dofs.Size(); i++)
    {
-      if ((j=dofs[i]) >= 0)
-      {
-         elem_data[i] = data[j];
-      }
-      else
-      {
-         elem_data[i] = -data[-1-j];
-      }
+      const int j = dofs[i];
+      elem_data[i] = (j >= 0) ? array[j] : -array[-1-j];
    }
 }
 
 void Vector::SetSubVector(const Array<int> &dofs, const double value)
 {
-   const int n = dofs.Size();
-
-   for (int i = 0; i < n; i++)
+   for (int i = 0; i < dofs.Size(); i++)
    {
       const int j = dofs[i];
       if (j >= 0)
       {
-         data[j] = value;
+         array[j] = value;
       }
       else
       {
-         data[-1-j] = -value;
+         array[-1-j] = -value;
       }
    }
 }
 
 void Vector::SetSubVector(const Array<int> &dofs, const Vector &elemvect)
 {
-   int i, j, n = dofs.Size();
-
-   for (i = 0; i < n; i++)
+   for (int i = 0; i < dofs.Size(); i++)
    {
-      if ((j=dofs[i]) >= 0)
+      const int j = dofs[i];
+      if (j >= 0)
       {
-         data[j] = elemvect(i);
+         array[j] = elemvect(i);
       }
       else
       {
-         data[-1-j] = -elemvect(i);
+         array[-1-j] = -elemvect(i);
       }
    }
 }
 
 void Vector::SetSubVector(const Array<int> &dofs, double *elem_data)
 {
-   int i, j, n = dofs.Size();
-
-   for (i = 0; i < n; i++)
+   for (int i = 0; i < dofs.Size(); i++)
    {
-      if ((j=dofs[i]) >= 0)
+      const int j = dofs[i];
+      if (j >= 0)
       {
-         data[j] = elem_data[i];
+         array[j] = elem_data[i];
       }
       else
       {
-         data[-1-j] = -elem_data[i];
+         array[-1-j] = -elem_data[i];
       }
    }
 }
@@ -546,34 +453,33 @@ void Vector::SetSubVector(const Array<int> &dofs, double *elem_data)
 void Vector::AddElementVector(const Array<int> &dofs, const Vector &elemvect)
 {
    MFEM_ASSERT(dofs.Size() == elemvect.Size(), "");
-   int i, j, n = dofs.Size();
 
-   for (i = 0; i < n; i++)
+   for (int i = 0; i < dofs.Size(); i++)
    {
-      if ((j=dofs[i]) >= 0)
+      const int j = dofs[i];
+      if (j >= 0)
       {
-         data[j] += elemvect(i);
+         array[j] += elemvect(i);
       }
       else
       {
-         data[-1-j] -= elemvect(i);
+         array[-1-j] -= elemvect(i);
       }
    }
 }
 
 void Vector::AddElementVector(const Array<int> &dofs, double *elem_data)
 {
-   int i, j, n = dofs.Size();
-
-   for (i = 0; i < n; i++)
+   for (int i = 0; i < dofs.Size(); i++)
    {
-      if ((j = dofs[i]) >= 0)
+      const int j = dofs[i];
+      if (j >= 0)
       {
-         data[j] += elem_data[i];
+         array[j] += elem_data[i];
       }
       else
       {
-         data[-1-j] -= elem_data[i];
+         array[-1-j] -= elem_data[i];
       }
    }
 }
@@ -581,17 +487,17 @@ void Vector::AddElementVector(const Array<int> &dofs, double *elem_data)
 void Vector::AddElementVector(const Array<int> &dofs, const double a,
                               const Vector &elemvect)
 {
-   int i, j, n = dofs.Size();
-
-   for (i = 0; i < n; i++)
-      if ((j=dofs[i]) >= 0)
+   for (int i = 0; i < dofs.Size(); i++) {
+      const int j = dofs[i];
+      if (j >= 0)
       {
-         data[j] += a * elemvect(i);
+         array[j] += a * elemvect(i);
       }
       else
       {
-         data[-1-j] -= a * elemvect(i);
+         array[-1-j] -= a * elemvect(i);
       }
+   }
 }
 
 void Vector::SetSubVectorComplement(const Array<int> &dofs, const double val)
@@ -604,11 +510,13 @@ void Vector::SetSubVectorComplement(const Array<int> &dofs, const double val)
 
 void Vector::Print(std::ostream &out, int width) const
 {
+   const int size = Size();
+
    if (!size) { return; }
 
    for (int i = 0; 1; )
    {
-      out << data[i];
+      out << array[i];
       i++;
       if (i == size)
       {
@@ -628,16 +536,15 @@ void Vector::Print(std::ostream &out, int width) const
 
 void Vector::Print_HYPRE(std::ostream &out) const
 {
-   int i;
    std::ios::fmtflags old_fmt = out.flags();
    out.setf(std::ios::scientific);
    std::streamsize old_prec = out.precision(14);
 
-   out << size << '\n';  // number of rows
+   out << Size() << '\n';  // number of rows
 
-   for (i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      out << data[i] << '\n';
+      out << array[i] << '\n';
    }
 
    out.precision(old_prec);
@@ -657,14 +564,15 @@ void Vector::Randomize(int seed)
    // srand(seed++);
    srand((unsigned)seed);
 
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      data[i] = std::abs(rand()/max);
+      array[i] = std::abs(rand()/max);
    }
 }
 
 double Vector::Norml2() const
 {
+   const int size = Size();
    // Scale entries of Vector on the fly, using algorithms from
    // std::hypot() and LAPACK's drm2. This scaling ensures that the
    // argument of each call to std::pow is <= 1 to avoid overflow.
@@ -675,7 +583,7 @@ double Vector::Norml2() const
 
    if (1 == size)
    {
-      return std::abs(data[0]);
+      return std::abs(array[0]);
    } // end if 1 == size
 
    double scale = 0.0;
@@ -683,9 +591,9 @@ double Vector::Norml2() const
 
    for (int i = 0; i < size; i++)
    {
-      if (data[i] != 0.0)
+      if (array[i] != 0.0)
       {
-         const double absdata = std::abs(data[i]);
+         const double absdata = std::abs(array[i]);
          if (scale <= absdata)
          {
             const double sqr_arg = scale / absdata;
@@ -703,9 +611,9 @@ double Vector::Norml2() const
 double Vector::Normlinf() const
 {
    double max = 0.0;
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      max = std::max(std::abs(data[i]), max);
+      max = std::max(std::abs(array[i]), max);
    }
    return max;
 }
@@ -713,9 +621,9 @@ double Vector::Normlinf() const
 double Vector::Norml1() const
 {
    double sum = 0.0;
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      sum += std::abs(data[i]);
+      sum += std::abs(array[i]);
    }
    return sum;
 }
@@ -723,6 +631,8 @@ double Vector::Norml1() const
 double Vector::Normlp(double p) const
 {
    MFEM_ASSERT(p > 0.0, "Vector::Normlp");
+   const int size = Size();
+
    if (p == 1.0)
    {
       return Norml1();
@@ -743,7 +653,7 @@ double Vector::Normlp(double p) const
 
       if (1 == size)
       {
-         return std::abs(data[0]);
+         return std::abs(array[0]);
       } // end if 1 == size
 
       double scale = 0.0;
@@ -751,9 +661,9 @@ double Vector::Normlp(double p) const
 
       for (int i = 0; i < size; i++)
       {
-         if (data[i] != 0.0)
+         if (array[i] != 0.0)
          {
-            const double absdata = std::abs(data[i]);
+            const double absdata = std::abs(array[i]);
             if (scale <= absdata)
             {
                sum = 1.0 + sum * std::pow(scale / absdata, p);
@@ -771,12 +681,12 @@ double Vector::Normlp(double p) const
 
 double Vector::Max() const
 {
-   double max = data[0];
+   double max = array[0];
 
-   for (int i = 1; i < size; i++)
-      if (data[i] > max)
+   for (int i = 1; i < Size(); i++)
+      if (array[i] > max)
       {
-         max = data[i];
+         max = array[i];
       }
 
    return max;
@@ -784,12 +694,12 @@ double Vector::Max() const
 
 double Vector::Min() const
 {
-   double min = data[0];
+   double min = array[0];
 
-   for (int i = 1; i < size; i++)
-      if (data[i] < min)
+   for (int i = 1; i < Size(); i++)
+      if (array[i] < min)
       {
-         min = data[i];
+         min = array[i];
       }
 
    return min;
@@ -799,9 +709,9 @@ double Vector::Sum() const
 {
    double sum = 0.0;
 
-   for (int i = 0; i < size; i++)
+   for (int i = 0; i < Size(); i++)
    {
-      sum += data[i];
+      sum += array[i];
    }
 
    return sum;

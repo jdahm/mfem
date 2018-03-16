@@ -92,7 +92,7 @@ GridFunction::GridFunction(Mesh *m, GridFunction *gf_array[], int num_pieces)
       int l_nfdofs = l_fes->GetNFDofs();
       int l_nddofs = l_ndofs - (l_nvdofs + l_nedofs + l_nfdofs);
       const double *l_data = gf_array[i]->GetData();
-      double *g_data = data;
+      double *g_data = GetData();
       if (ordering == Ordering::byNODES)
       {
          for (int d = 0; d < vdim; d++)
@@ -201,7 +201,7 @@ void GridFunction::MakeTRef(FiniteElementSpace *f, double *tv)
    if (!f->GetProlongationMatrix())
    {
       MakeRef(f, tv);
-      t_vec.NewDataAndSize(tv, size);
+      t_vec.NewDataAndSize(tv, Size());
    }
    else
    {
@@ -215,7 +215,7 @@ void GridFunction::MakeTRef(FiniteElementSpace *f, Vector &tv, int tv_offset)
    if (!f->GetProlongationMatrix())
    {
       MakeRef(f, tv, tv_offset);
-      t_vec.NewDataAndSize(data, size);
+      t_vec.NewDataAndSize(GetData(), Size());
    }
    else
    {
@@ -315,7 +315,7 @@ void GridFunction::GetTrueDofs(Vector &tv) const
    if (!R)
    {
       // R is identity -> make tv a reference to *this
-      tv.NewDataAndSize(data, size);
+      tv.NewDataAndSize(GetData(), Size());
    }
    else
    {
@@ -330,7 +330,7 @@ void GridFunction::SetFromTrueDofs(const Vector &tv)
    const SparseMatrix *cP = fes->GetConformingProlongation();
    if (!cP)
    {
-      if (tv.GetData() != data)
+      if (tv.GetData() != GetData())
       {
          *this = tv;
       }
@@ -703,6 +703,7 @@ void GridFunction::GetVectorFieldValues(
    transf = fes->GetElementTransformation(i);
    transf->Transform(ir, tr);
    vals.SetSize(n, sdim);
+   const double *data = GetData();
    DenseMatrix vshape(dof, sdim);
    double a;
    for (k = 0; k < n; k++)
@@ -734,24 +735,23 @@ void GridFunction::ReorderByNodes()
       return;
    }
 
+   const int size = Size();
    int i, j, k;
    int vdim = fes->GetVDim();
    int ndofs = fes->GetNDofs();
-   double *temp = new double[size];
+   Array<double> temp(size);
 
    k = 0;
    for (j = 0; j < ndofs; j++)
       for (i = 0; i < vdim; i++)
       {
-         temp[j+i*ndofs] = data[k++];
+         temp[j+i*ndofs] = array[k++];
       }
 
    for (i = 0; i < size; i++)
    {
-      data[i] = temp[i];
+      array[i] = temp[i];
    }
-
-   delete [] temp;
 }
 
 void GridFunction::GetVectorFieldNodalValues(Vector &val, int comp) const
@@ -860,7 +860,7 @@ void GridFunction::GetDerivative(int comp, int der_comp, GridFunction &der)
       transf = fes->GetElementTransformation(i);
       for (j = 0; j < dof; j++)
          loc_func(j) = ( (ind=vdofs[comp*dof+j]) >= 0 ) ?
-                       (data[ind]) : (-data[-1-ind]);
+                       (array[ind]) : (-array[-1-ind]);
       for (k = 0; k < der_dof; k++)
       {
          const IntegrationPoint &ip = ir.IntPoint(k);
@@ -1293,14 +1293,14 @@ void GridFunction::ComputeMeans(AvgType type, Array<int> &zones_per_vdof)
    switch (type)
    {
       case ARITHMETIC:
-         for (int i = 0; i < size; i++)
+         for (int i = 0; i < Size(); i++)
          {
             (*this)(i) /= zones_per_vdof[i];
          }
          break;
 
       case HARMONIC:
-         for (int i = 0; i < size; i++)
+         for (int i = 0; i < Size(); i++)
          {
             (*this)(i) = zones_per_vdof[i]/(*this)(i);
          }
