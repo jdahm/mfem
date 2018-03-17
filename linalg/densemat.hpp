@@ -633,41 +633,21 @@ class DenseTensor
 {
 private:
    DenseMatrix Mk;
-   double *tdata;
    int nk;
-   bool own_data;
+   Array<double> array;
 
 public:
    DenseTensor()
    {
       nk = 0;
-      tdata = NULL;
-      own_data = true;
    }
 
    DenseTensor(int i, int j, int k)
-      : Mk(NULL, i, j)
-   {
-      nk = k;
-      tdata = new double[i*j*k];
-      own_data = true;
-   }
+      : Mk(NULL, i, j), nk(k), array(i*j*k) { }
 
    /// Copy constructor: deep copy
    DenseTensor(const DenseTensor& other)
-      : Mk(NULL, other.Mk.height, other.Mk.width), nk(other.nk), own_data(true)
-   {
-      const int size = Mk.Height()*Mk.Width()*nk;
-      if (size > 0)
-      {
-         tdata = new double[size];
-         std::memcpy(tdata, other.tdata, sizeof(double) * size);
-      }
-      else
-      {
-         tdata = NULL;
-      }
-   }
+      : Mk(NULL, other.Mk.height, other.Mk.width), nk(other.nk), array(other.array) { }
 
    int SizeI() const { return Mk.Height(); }
    int SizeJ() const { return Mk.Width(); }
@@ -675,20 +655,16 @@ public:
 
    void SetSize(int i, int j, int k)
    {
-      if (own_data) { delete [] tdata; }
+      array.SetSize(i*j*k);
       Mk.UseExternalData(NULL, i, j);
       nk = k;
-      tdata = new double[i*j*k];
-      own_data = true;
    }
 
    void UseExternalData(double *ext_data, int i, int j, int k)
    {
-      if (own_data) { delete [] tdata; }
+      array.MakeRef(ext_data, i*j*k);
       Mk.UseExternalData(NULL, i, j);
       nk = k;
-      tdata = ext_data;
-      own_data = false;
    }
 
    /// Sets the tensor elements equal to constant c
@@ -699,13 +675,14 @@ public:
    { return const_cast<DenseTensor&>(*this)(k); }
 
    double &operator()(int i, int j, int k)
-   { return tdata[i+SizeI()*(j+SizeJ()*k)]; }
+   { return array[i+SizeI()*(j+SizeJ()*k)]; }
    const double &operator()(int i, int j, int k) const
-   { return tdata[i+SizeI()*(j+SizeJ()*k)]; }
+   { return array[i+SizeI()*(j+SizeJ()*k)]; }
 
-   double *GetData(int k) { return tdata+k*Mk.Height()*Mk.Width(); }
+   double *GetData(int k) { return (double*)array.GetData()+k*Mk.Height()*Mk.Width(); }
+   double *GetData(int k) const { return (double*)array.GetData()+k*Mk.Height()*Mk.Width(); }
 
-   double *Data() { return tdata; }
+   double *Data() { return array.GetData(); }
 
    /** Matrix-vector product from unassembled element matrices, assuming both
        'x' and 'y' use the same elem_dof table. */
@@ -714,12 +691,7 @@ public:
    void Clear()
    { UseExternalData(NULL, 0, 0, 0); }
 
-   long MemoryUsage() const { return nk*Mk.MemoryUsage(); }
-
-   ~DenseTensor()
-   {
-      if (own_data) { delete [] tdata; }
-   }
+   long MemoryUsage() const { return array.MemoryUsage(); }
 };
 
 

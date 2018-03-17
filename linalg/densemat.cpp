@@ -4238,8 +4238,8 @@ const
 {
    int n = SizeI(), ne = SizeK();
    const int *I = elem_dof.GetI(), *J = elem_dof.GetJ(), *dofs;
-   double *d_col = tdata, *yp = y, x_col;
-   const double *xp = x;
+   double *d_col = GetData(0), *yp = y, x_col;
+   const double *xp = x.GetData();
    // the '4' here can be tuned for given platform and compiler
    if (n <= 4)
    {
@@ -4288,11 +4288,7 @@ const
 
 DenseTensor &DenseTensor::operator=(double c)
 {
-   int s = SizeI() * SizeJ() * SizeK();
-   for (int i=0; i<s; i++)
-   {
-      tdata[i] = c;
-   }
+   array = c;
    return *this;
 }
 
