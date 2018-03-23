@@ -320,15 +320,6 @@ void BilinearForm::Assemble (int skip_zeros)
       AllocMat();
    }
 
-#ifdef MFEM_USE_OPENMP
-   int free_element_matrices = 0;
-   if (!element_matrices)
-   {
-      ComputeElementMatrices();
-      free_element_matrices = 1;
-   }
-#endif
-
    if (dbfi.Size())
    {
       for (i = 0; i < fes -> GetNE(); i++)
@@ -350,6 +341,7 @@ void BilinearForm::Assemble (int skip_zeros)
             }
             elmat_p = &elmat;
          }
+
          if (static_cond)
          {
             static_cond->AssembleMatrix(i, *elmat_p);
@@ -496,13 +488,6 @@ void BilinearForm::Assemble (int skip_zeros)
          }
       }
    }
-
-#ifdef MFEM_USE_OPENMP
-   if (free_element_matrices)
-   {
-      FreeElementMatrices();
-   }
-#endif
 }
 
 void BilinearForm::ConformingAssemble()
@@ -707,9 +692,6 @@ void BilinearForm::ComputeElementMatrices()
    DenseMatrix tmp;
    IsoparametricTransformation eltrans;
 
-#ifdef MFEM_USE_OPENMP
-   #pragma omp parallel for private(tmp,eltrans)
-#endif
    for (int i = 0; i < num_elements; i++)
    {
       DenseMatrix elmat(element_matrices->GetData(i),

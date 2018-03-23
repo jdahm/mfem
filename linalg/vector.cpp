@@ -74,9 +74,6 @@ double Vector::operator*(const double *v) const
    int s = array.Size();
    const double *d = array.GetData();
    double prod = 0.0;
-#ifdef MFEM_USE_OPENMP
-   #pragma omp parallel for reduction(+:prod)
-#endif
    for (int i = 0; i < s; i++)
    {
       prod += d[i] * v[i];
@@ -213,9 +210,6 @@ void add(const Vector &v1, const Vector &v2, Vector &v)
    double *vp = v.GetData();
    MFEM_ASSERT((vs == v1s) && (vs == v2s), "add(Vector &v1, Vector &v2, Vector &v)");
 
-#ifdef MFEM_USE_OPENMP
-   #pragma omp parallel for
-#endif
    for (int i = 0; i < vs; i++)
    {
       vp[i] = v1p[i] + v2p[i];
@@ -239,9 +233,6 @@ void add(const Vector &v1, double alpha, const Vector &v2, Vector &v)
    {
       const double *v1p = v1.GetData(), *v2p = v2.GetData();
       double *vp = v.GetData();
-#ifdef MFEM_USE_OPENMP
-      #pragma omp parallel for
-#endif
       for (int i = 0; i < vs; i++)
       {
          vp[i] = v1p[i] + alpha*v2p[i];
@@ -268,9 +259,6 @@ void add(const double a, const Vector &x, const Vector &y, Vector &z)
       const double *xp = x.GetData(), *yp = y.GetData();
       double *zp = z.GetData();
 
-#ifdef MFEM_USE_OPENMP
-      #pragma omp parallel for
-#endif
       for (int i = 0; i < zs; i++)
       {
          zp[i] = a * (xp[i] + yp[i]);
@@ -310,9 +298,6 @@ void add(const double a, const Vector &x,
       const double *xp = x.GetData(), *yp = y.GetData();
       double *zp = z.GetData();
 
-#ifdef MFEM_USE_OPENMP
-      #pragma omp parallel for
-#endif
       for (int i = 0; i < zs; i++)
       {
          zp[i] = a * xp[i] + b * yp[i];
@@ -328,9 +313,6 @@ void subtract(const Vector &x, const Vector &y, Vector &z)
    const double *xp = x.GetData(), *yp = y.GetData();
    double *zp = z.GetData();
 
-#ifdef MFEM_USE_OPENMP
-   #pragma omp parallel for
-#endif
    for (int i = 0; i < zs; i++)
    {
       zp[i] = xp[i] - yp[i];
@@ -357,9 +339,6 @@ void subtract(const double a, const Vector &x, const Vector &y, Vector &z)
       const double *xp = x.GetData(), *yp = y.GetData();
       double *zp = z.GetData();
 
-#ifdef MFEM_USE_OPENMP
-      #pragma omp parallel for
-#endif
       for (int i = 0; i < zs; i++)
       {
          zp[i] = a * (xp[i] - yp[i]);
