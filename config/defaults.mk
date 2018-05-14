@@ -106,6 +106,7 @@ MFEM_USE_MPFR        = NO
 MFEM_USE_SIDRE       = NO
 MFEM_USE_CONDUIT     = NO
 MFEM_USE_CUDAUM      = NO
+MFEM_USE_OPENMP      = NO
 
 # Compile and link options for zlib.
 ZLIB_DIR =
@@ -270,6 +271,10 @@ SIDRE_LIB = \
 CUDA_DIR = /usr/local/cuda
 CUDAUM_OPT = -I$(CUDA_DIR)/include
 CUDAUM_LIB = -L$(CUDA_DIR)/lib -lcudart
+
+# OpenMP flags
+OPENMP_OPT = -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda
+OPENMP_LIB =
 
 # If YES, enable some informational messages
 VERBOSE = NO
